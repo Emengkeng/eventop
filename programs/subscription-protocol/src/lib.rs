@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer, Mint, CloseAccount};
-use clockwork_sdk::state::Thread;
+// use clockwork_sdk::state::Thread;
 
 declare_id!("7sfgAWayriXLDnDvseZTNo3DvwVV7SrybvVFhjJgjkJH");
 
