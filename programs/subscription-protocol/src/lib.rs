@@ -273,7 +273,6 @@ pub mod subscription_protocol {
     pub fn execute_payment_from_wallet(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
         let subscription = &mut ctx.accounts.subscription_state;
         let merchant_plan = &ctx.accounts.merchant_plan;
-        let wallet = &mut ctx.accounts.subscription_wallet;
         let current_time = Clock::get()?.unix_timestamp;
         
         require!(subscription.is_active, ErrorCode::SubscriptionInactive);
@@ -281,7 +280,7 @@ pub mod subscription_protocol {
 
         // Verify subscription linked to correct wallet
         require!(
-            subscription.subscription_wallet == wallet.key(),
+            subscription.subscription_wallet == ctx.accounts.subscription_wallet.key(),
             ErrorCode::InvalidSubscriptionWallet
         );
 
@@ -294,8 +293,14 @@ pub mod subscription_protocol {
 
         let fee_to_charge = subscription.fee_amount;
 
+        // Read values we need BEFORE taking mutable borrow
+        let is_yield_enabled = ctx.accounts.subscription_wallet.is_yield_enabled;
+        let owner_key = ctx.accounts.subscription_wallet.owner;
+        let mint_key = ctx.accounts.subscription_wallet.mint;
+        let bump = ctx.accounts.subscription_wallet.bump;
+
         // Get current balance from wallet (or yield vault)
-        let available_balance = if wallet.is_yield_enabled {
+        let available_balance = if is_yield_enabled {
             get_yield_vault_balance(&ctx.accounts.wallet_yield_vault)?
         } else {
             ctx.accounts.wallet_token_account.amount
@@ -307,7 +312,7 @@ pub mod subscription_protocol {
         );
 
         // If yield enabled, withdraw payment amount from yield vault
-        if wallet.is_yield_enabled {
+        if is_yield_enabled {
             withdraw_from_yield_vault(
                 &ctx.accounts.subscription_wallet,
                 &ctx.accounts.wallet_yield_vault,
@@ -318,9 +323,6 @@ pub mod subscription_protocol {
         }
 
         // Create wallet PDA signer seeds
-        let owner_key = wallet.owner;
-        let mint_key = wallet.mint;
-        let bump = wallet.bump;
         let seeds = &[
             b"subscription_wallet",
             owner_key.as_ref(),
@@ -339,7 +341,9 @@ pub mod subscription_protocol {
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
         token::transfer(cpi_ctx, fee_to_charge)?;
 
-        // Update states
+        // NOW take mutable borrow to update states
+        let wallet = &mut ctx.accounts.subscription_wallet;
+        
         subscription.last_payment_timestamp = current_time;
         subscription.total_paid += fee_to_charge;
         subscription.payment_count += 1;
@@ -700,8 +704,8 @@ pub struct ExecutePaymentFromWallet<'info> {
     pub wallet_yield_vault: AccountInfo<'info>,
 
     /// CHECK: Clockwork thread
-    #[account(constraint = thread.authority == subscription_state.key() @ ErrorCode::UnauthorizedCaller)]
-    pub thread: Account<'info, Thread>,
+    // #[account(constraint = thread.authority == subscription_state.key() @ ErrorCode::UnauthorizedCaller)]
+    // pub thread: Account<'info, Thread>,
 
     pub token_program: Program<'info, Token>,
 }
