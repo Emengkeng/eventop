@@ -762,6 +762,13 @@ pub struct ClaimYieldRewards<'info> {
     )]
     pub user_token_account: Account<'info, TokenAccount>,
 
+    #[account(
+        token::mint = subscription_wallet.mint,
+        token::authority = subscription_wallet
+    )]
+    pub wallet_token_account: Account<'info, TokenAccount>,
+
+
     /// CHECK: Yield vault
     pub yield_vault_account: AccountInfo<'info>,
 
