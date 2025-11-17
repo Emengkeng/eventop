@@ -12,7 +12,7 @@ subscription_protocol = "7sfgAWayriXLDnDvseZTNo3DvwVV7SrybvVFhjJgjkJH"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
