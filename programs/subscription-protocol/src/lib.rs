@@ -273,95 +273,99 @@ pub mod subscription_protocol {
     pub fn execute_payment_from_wallet(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
         let subscription = &mut ctx.accounts.subscription_state;
         let merchant_plan = &ctx.accounts.merchant_plan;
+        let wallet = &mut ctx.accounts.subscription_wallet;
         let current_time = Clock::get()?.unix_timestamp;
         
-        require!(subscription.is_active, ErrorCode::SubscriptionInactive);
-        require!(merchant_plan.is_active, ErrorCode::PlanInactive);
-
-        // Verify subscription linked to correct wallet
+        // ============================================
+        // VALIDATION (Smart contract enforces rules)
+        // ============================================
+        
+        // Check 1: Subscription must be active
         require!(
-            subscription.subscription_wallet == ctx.accounts.subscription_wallet.key(),
-            ErrorCode::InvalidSubscriptionWallet
+            subscription.is_active,
+            ErrorCode::SubscriptionInactive
         );
 
-        // Check payment interval
+        // Check 2: Enough time has passed (prevent early payments)
         let time_since_last = current_time - subscription.last_payment_timestamp;
         require!(
             time_since_last >= subscription.payment_interval,
             ErrorCode::PaymentTooEarly
         );
 
+        // Check 3: Sufficient balance in wallet
         let fee_to_charge = subscription.fee_amount;
-
-        // Read values we need BEFORE taking mutable borrow
-        let is_yield_enabled = ctx.accounts.subscription_wallet.is_yield_enabled;
-        let owner_key = ctx.accounts.subscription_wallet.owner;
-        let mint_key = ctx.accounts.subscription_wallet.mint;
-        let bump = ctx.accounts.subscription_wallet.bump;
-
-        // Get current balance from wallet (or yield vault)
-        let available_balance = if is_yield_enabled {
-            get_yield_vault_balance(&ctx.accounts.wallet_yield_vault)?
-        } else {
-            ctx.accounts.wallet_token_account.amount
-        };
-
+        let available_balance = ctx.accounts.wallet_token_account.amount;
+        
         require!(
             available_balance >= fee_to_charge,
-            ErrorCode::InsufficientWalletBalance
+            ErrorCode::InsufficientFunds
         );
 
-        // If yield enabled, withdraw payment amount from yield vault
-        if is_yield_enabled {
-            withdraw_from_yield_vault(
-                &ctx.accounts.subscription_wallet,
-                &ctx.accounts.wallet_yield_vault,
-                &ctx.accounts.wallet_token_account,
-                &ctx.accounts.token_program,
-                fee_to_charge,
-            )?;
-        }
-
-        // Create wallet PDA signer seeds
+        // ============================================
+        // EXECUTION (Transfer payment)
+        // ============================================
+        
+        // Create PDA signer seeds for subscription wallet
+        let owner_key = wallet.owner;
+        let mint_key = wallet.mint;
+        let bump = wallet.bump;
         let seeds = &[
             b"subscription_wallet",
             owner_key.as_ref(),
             mint_key.as_ref(),
             &[bump],
         ];
-        let signer = &[&seeds[..]];
+        let signer_seeds = &[&seeds[..]];
 
-        // Transfer from wallet directly to merchant
-        let cpi_accounts = Transfer {
+        // Transfer tokens from wallet to merchant
+        let transfer_accounts = Transfer {
             from: ctx.accounts.wallet_token_account.to_account_info(),
             to: ctx.accounts.merchant_token_account.to_account_info(),
             authority: ctx.accounts.subscription_wallet.to_account_info(),
         };
-        let cpi_program = ctx.accounts.token_program.to_account_info();
-        let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+        
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            transfer_accounts,
+            signer_seeds,
+        );
+        
         token::transfer(cpi_ctx, fee_to_charge)?;
 
-        // NOW take mutable borrow to update states
-        let wallet = &mut ctx.accounts.subscription_wallet;
+        // ============================================
+        // STATE UPDATES
+        // ============================================
         
         subscription.last_payment_timestamp = current_time;
-        subscription.total_paid += fee_to_charge;
-        subscription.payment_count += 1;
-        wallet.total_spent += fee_to_charge;
+        subscription.total_paid = subscription.total_paid
+            .checked_add(fee_to_charge)
+            .ok_or(ErrorCode::MathOverflow)?;
+    subscription.payment_count = subscription.payment_count
+        .checked_add(1)
+        .ok_or(ErrorCode::MathOverflow)?;
+    
+    wallet.total_spent = wallet.total_spent
+        .checked_add(fee_to_charge)
+        .ok_or(ErrorCode::MathOverflow)?;
 
-        emit!(PaymentExecuted {
-            subscription_pda: subscription.key(),
-            wallet_pda: wallet.key(),
-            user: subscription.user,
-            merchant: subscription.merchant,
-            amount: fee_to_charge,
-            payment_number: subscription.payment_count,
-        });
+    // ============================================
+    // EVENT EMISSION (for indexer)
+    // ============================================
+    
+    emit!(PaymentExecuted {
+        subscription_pda: subscription.key(),
+        wallet_pda: wallet.key(),
+        user: subscription.user,
+        merchant: subscription.merchant,
+        amount: fee_to_charge,
+        payment_number: subscription.payment_count,
+    });
 
-        msg!("Payment executed from Subscription Wallet: {}", fee_to_charge);
+    msg!("✅ Payment #{} executed: {} tokens", subscription.payment_count, fee_to_charge);
 
-        Ok(())
-    }
+    Ok(())
+}
 
     /// Cancel subscription (no refund needed, funds stay in wallet)
     pub fn cancel_subscription_wallet(ctx: Context<CancelSubscriptionWallet>) -> Result<()> {
@@ -678,11 +682,13 @@ pub struct ExecutePaymentFromWallet<'info> {
             subscription_wallet.mint.as_ref()
         ],
         bump = subscription_wallet.bump,
+        constraint = subscription_wallet.key() == subscription_state.subscription_wallet @ ErrorCode::InvalidSubscriptionWallet
     )]
     pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
     #[account(
         constraint = merchant_plan.key() == subscription_state.merchant_plan @ ErrorCode::InvalidMerchantPlan,
+        constraint = merchant_plan.is_active @ ErrorCode::PlanInactive
     )]
     pub merchant_plan: Account<'info, MerchantPlan>,
 
@@ -696,16 +702,9 @@ pub struct ExecutePaymentFromWallet<'info> {
     #[account(
         mut,
         token::mint = subscription_state.mint,
-        constraint = merchant_token_account.owner == merchant_plan.merchant
+        constraint = merchant_token_account.owner == merchant_plan.merchant @ ErrorCode::InvalidMerchantAccount
     )]
     pub merchant_token_account: Account<'info, TokenAccount>,
-
-    /// CHECK: Yield vault (if enabled)
-    pub wallet_yield_vault: AccountInfo<'info>,
-
-    /// CHECK: Clockwork thread
-    // #[account(constraint = thread.authority == subscription_state.key() @ ErrorCode::UnauthorizedCaller)]
-    // pub thread: Account<'info, Thread>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -964,4 +963,28 @@ pub enum ErrorCode {
 
     #[msg("No yield rewards to claim")]
     NoYieldToClaim,
+
+     #[msg("Subscription is not active")]
+    SubscriptionInactive,
+    
+    #[msg("Payment interval has not elapsed yet")]
+    PaymentTooEarly,
+    
+    #[msg("Insufficient funds in wallet")]
+    InsufficientFunds,
+    
+    #[msg("Invalid subscription wallet reference")]
+    InvalidSubscriptionWallet,
+    
+    #[msg("Invalid merchant plan reference")]
+    InvalidMerchantPlan,
+    
+    #[msg("Invalid merchant token account")]
+    InvalidMerchantAccount,
+    
+    #[msg("Merchant plan is not active")]
+    PlanInactive,
+    
+    #[msg("Math operation overflow")]
+    MathOverflow,
 }
