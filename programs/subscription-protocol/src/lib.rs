@@ -322,7 +322,7 @@ pub mod subscription_protocol {
         let transfer_accounts = Transfer {
             from: ctx.accounts.wallet_token_account.to_account_info(),
             to: ctx.accounts.merchant_token_account.to_account_info(),
-            authority: ctx.accounts.subscription_wallet.to_account_info(),
+            authority: wallet.to_account_info(),
         };
         
         let cpi_ctx = CpiContext::new_with_signer(
@@ -963,27 +963,12 @@ pub enum ErrorCode {
 
     #[msg("No yield rewards to claim")]
     NoYieldToClaim,
-
-     #[msg("Subscription is not active")]
-    SubscriptionInactive,
-    
-    #[msg("Payment interval has not elapsed yet")]
-    PaymentTooEarly,
     
     #[msg("Insufficient funds in wallet")]
     InsufficientFunds,
     
-    #[msg("Invalid subscription wallet reference")]
-    InvalidSubscriptionWallet,
-    
-    #[msg("Invalid merchant plan reference")]
-    InvalidMerchantPlan,
-    
     #[msg("Invalid merchant token account")]
     InvalidMerchantAccount,
-    
-    #[msg("Merchant plan is not active")]
-    PlanInactive,
     
     #[msg("Math operation overflow")]
     MathOverflow,
