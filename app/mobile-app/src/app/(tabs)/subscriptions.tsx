@@ -15,8 +15,8 @@ export default function SubscriptionsScreen() {
   const router = useRouter();
   const { data: subscriptions, isLoading } = useSubscriptions();
 
-  const activeSubscriptions = subscriptions?.filter(s => s.isActive) || [];
-  const inactiveSubscriptions = subscriptions?.filter(s => !s.isActive) || [];
+  const activeSubscriptions = subscriptions?.filter((s: { isActive: any; }) => s.isActive) || [];
+  const inactiveSubscriptions = subscriptions?.filter((s: { isActive: any; }) => !s.isActive) || [];
 
   const renderSubscription = ({ item }: { item: any }) => (
     <TouchableOpacity

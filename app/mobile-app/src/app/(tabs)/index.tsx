@@ -31,7 +31,7 @@ export default function HomeScreen() {
   };
 
   // Calculate stats
-  const activeSubscriptions = subscriptions?.filter(s => s.isActive).length || 0;
+  const activeSubscriptions = subscriptions?.filter((s: { isActive: any; }) => s.isActive).length || 0;
   const totalBalance = walletBalance ? parseFloat(walletBalance.totalSpent) / 1_000_000 : balance.total;
   const committedBalance = balance.committed;
   const availableBalance = totalBalance - committedBalance;
