@@ -31,43 +31,40 @@ export class WebhookService {
     });
 
     if (!merchant || !merchant.webhookUrl) {
-      this.logger.warn(`No webhook URL configured for merchant: ${merchantWallet}`);
+      this.logger.warn(
+        `No webhook URL configured for merchant: ${merchantWallet}`,
+      );
       return;
     }
 
     try {
       // Create signature
-      const signature = this.generateSignature(
-        payload,
-        merchant.webhookSecret
-      );
+      const signature = this.generateSignature(payload, merchant.webhookSecret);
 
       // Send POST request
-      const response = await firstValueFrom(
-        this.httpService.post(
-          merchant.webhookUrl,
-          payload,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Webhook-Signature': signature,
-              'X-Webhook-Timestamp': payload.timestamp.toString(),
-            },
-            timeout: 10000,
-          }
-        )
+      await firstValueFrom(
+        this.httpService.post(merchant.webhookUrl, payload, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Webhook-Signature': signature,
+            'X-Webhook-Timestamp': payload.timestamp.toString(),
+          },
+          timeout: 10000,
+        }),
       );
 
       this.logger.log(
-        `✅ Webhook sent to ${merchant.companyName || merchantWallet}: ${payload.event}`
+        `✅ Webhook sent to ${merchant.companyName || merchantWallet}: ${payload.event}`,
       );
 
-      return response.data;
+      // return response.data;
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `❌ Webhook failed for ${merchantWallet}: ${error.message}`
+        `❌ Webhook failed for ${merchantWallet}: ${errorMessage}`,
       );
-      
+
       // TODO: Implement retry logic with exponential backoff
       // TODO: Store failed webhooks for manual retry
     }
@@ -87,15 +84,11 @@ export class WebhookService {
   /**
    * Verify webhook signature
    */
-  verifySignature(
-    payload: any,
-    signature: string,
-    secret: string
-  ): boolean {
+  verifySignature(payload: any, signature: string, secret: string): boolean {
     const expectedSignature = this.generateSignature(payload, secret);
     return crypto.timingSafeEqual(
       Buffer.from(signature),
-      Buffer.from(expectedSignature)
+      Buffer.from(expectedSignature),
     );
   }
 

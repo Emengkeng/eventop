@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  sendAndConfirmTransaction,
+} from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
-import * as anchor from '@coral-xyz/anchor';
 
 @Injectable()
 export class SolanaPaymentService {
@@ -14,7 +18,7 @@ export class SolanaPaymentService {
     // Initialize connection
     this.connection = new Connection(
       process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-      'confirmed'
+      'confirmed',
     );
 
     // Load payer keypair (backend wallet that pays for transactions)
@@ -22,7 +26,9 @@ export class SolanaPaymentService {
     const secretKey = JSON.parse(process.env.PAYER_SECRET_KEY || '[]');
     this.payerKeypair = Keypair.fromSecretKey(new Uint8Array(secretKey));
 
-    this.logger.log(`💰 Payment service initialized with payer: ${this.payerKeypair.publicKey.toString()}`);
+    this.logger.log(
+      `💰 Payment service initialized with payer: ${this.payerKeypair.publicKey.toString()}`,
+    );
 
     // Load program
     this.initializeProgram();
@@ -37,9 +43,9 @@ export class SolanaPaymentService {
     // Load IDL and create program instance
     const programId = new PublicKey(process.env.PROGRAM_ID);
     const idl = await Program.fetchIdl(programId, provider);
-    
+
     this.program = new Program(idl, programId, provider);
-    
+
     this.logger.log(`📝 Program loaded: ${programId.toString()}`);
   }
 
@@ -50,7 +56,7 @@ export class SolanaPaymentService {
     subscriptionPda: string,
     subscriptionWalletPda: string,
     merchantWallet: string,
-    amount: string
+    amount: string,
   ): Promise<{ success: boolean; signature?: string; error?: string }> {
     try {
       // Derive necessary PDAs
@@ -60,9 +66,10 @@ export class SolanaPaymentService {
 
       // Get wallet token account
       const walletTokenAccount = await this.getWalletTokenAccount(walletPubkey);
-      
+
       // Get merchant token account
-      const merchantTokenAccount = await this.getMerchantTokenAccount(merchantPubkey);
+      const merchantTokenAccount =
+        await this.getMerchantTokenAccount(merchantPubkey);
 
       // Get merchant plan PDA (would need to derive based on your seeds)
       const merchantPlanPda = await this.deriveMerchantPlanPda(merchantPubkey);
@@ -78,7 +85,9 @@ export class SolanaPaymentService {
           merchantTokenAccount: merchantTokenAccount,
           walletYieldVault: PublicKey.default, // If yield enabled
           // Note: No thread account needed anymore!
-          tokenProgram: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+          tokenProgram: new PublicKey(
+            'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+          ),
         })
         .transaction();
 
@@ -90,7 +99,7 @@ export class SolanaPaymentService {
         {
           commitment: 'confirmed',
           skipPreflight: false,
-        }
+        },
       );
 
       this.logger.log(`✅ Payment executed: ${signature}`);
@@ -101,7 +110,7 @@ export class SolanaPaymentService {
       };
     } catch (error) {
       this.logger.error('Payment execution failed:', error);
-      
+
       return {
         success: false,
         error: error.message,
@@ -109,21 +118,27 @@ export class SolanaPaymentService {
     }
   }
 
-  private async getWalletTokenAccount(walletPda: PublicKey): Promise<PublicKey> {
+  private async getWalletTokenAccount(
+    walletPda: PublicKey,
+  ): Promise<PublicKey> {
     // Derive or fetch the wallet's token account
     // This depends on your program's account structure
     return PublicKey.default; // Placeholder
   }
 
-  private async getMerchantTokenAccount(merchantPubkey: PublicKey): Promise<PublicKey> {
+  private async getMerchantTokenAccount(
+    merchantPubkey: PublicKey,
+  ): Promise<PublicKey> {
     // Get merchant's associated token account
     const { getAssociatedTokenAddress } = await import('@solana/spl-token');
     const USDC_MINT = new PublicKey(process.env.USDC_MINT);
-    
+
     return getAssociatedTokenAddress(USDC_MINT, merchantPubkey);
   }
 
-  private async deriveMerchantPlanPda(merchantPubkey: PublicKey): Promise<PublicKey> {
+  private async deriveMerchantPlanPda(
+    merchantPubkey: PublicKey,
+  ): Promise<PublicKey> {
     // Derive based on your program's seeds
     // This is a placeholder - adjust to your actual derivation
     return PublicKey.default;

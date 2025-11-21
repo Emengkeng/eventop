@@ -10,10 +10,10 @@ export class SubscriptionService {
   constructor(
     @InjectRepository(Subscription)
     private subscriptionRepo: Repository<Subscription>,
-    
+
     @InjectRepository(SubscriptionWallet)
     private walletRepo: Repository<SubscriptionWallet>,
-    
+
     @InjectRepository(Transaction)
     private transactionRepo: Repository<Transaction>,
   ) {}
@@ -79,10 +79,10 @@ export class SubscriptionService {
       where: { userWallet },
     });
 
-    const activeCount = subscriptions.filter(s => s.isActive).length;
+    const activeCount = subscriptions.filter((s) => s.isActive).length;
     const totalSpent = subscriptions.reduce(
       (sum, s) => sum + BigInt(s.totalPaid),
-      BigInt(0)
+      BigInt(0),
     );
 
     return {
@@ -98,18 +98,24 @@ export class SubscriptionService {
       where: { userWallet, isActive: true },
     });
 
-    return subscriptions.map(sub => {
-      const lastPayment = parseInt(sub.lastPaymentTimestamp);
-      const interval = parseInt(sub.paymentInterval);
-      const nextPayment = lastPayment + interval;
+    return subscriptions
+      .map((sub) => {
+        const lastPayment = parseInt(sub.lastPaymentTimestamp);
+        const interval = parseInt(sub.paymentInterval);
+        const nextPayment = lastPayment + interval;
 
-      return {
-        subscriptionPda: sub.subscriptionPda,
-        merchantWallet: sub.merchantWallet,
-        amount: sub.feeAmount,
-        nextPaymentDate: new Date(nextPayment * 1000),
-        daysUntil: Math.ceil((nextPayment * 1000 - Date.now()) / (1000 * 60 * 60 * 24)),
-      };
-    }).sort((a, b) => a.nextPaymentDate.getTime() - b.nextPaymentDate.getTime());
+        return {
+          subscriptionPda: sub.subscriptionPda,
+          merchantWallet: sub.merchantWallet,
+          amount: sub.feeAmount,
+          nextPaymentDate: new Date(nextPayment * 1000),
+          daysUntil: Math.ceil(
+            (nextPayment * 1000 - Date.now()) / (1000 * 60 * 60 * 24),
+          ),
+        };
+      })
+      .sort(
+        (a, b) => a.nextPaymentDate.getTime() - b.nextPaymentDate.getTime(),
+      );
   }
 }

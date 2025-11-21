@@ -15,10 +15,10 @@ export class PaymentSchedulerService {
   constructor(
     @InjectRepository(Subscription)
     private subscriptionRepo: Repository<Subscription>,
-    
+
     @InjectRepository(ScheduledPayment)
     private scheduledPaymentRepo: Repository<ScheduledPayment>,
-    
+
     private solanaPaymentService: SolanaPaymentService,
     private webhookService: WebhookService,
   ) {}
@@ -40,9 +40,9 @@ export class PaymentSchedulerService {
     });
 
     await this.scheduledPaymentRepo.save(scheduledPayment);
-    
+
     this.logger.log(
-      `📅 Scheduled payment for ${subscription.subscriptionPda} at ${scheduledPayment.scheduledFor}`
+      `📅 Scheduled payment for ${subscription.subscriptionPda} at ${scheduledPayment.scheduledFor.toISOString()}`,
     );
   }
 
@@ -76,11 +76,11 @@ export class PaymentSchedulerService {
 
       // Process payments in parallel (with concurrency limit)
       const results = await Promise.allSettled(
-        duePayments.map(payment => this.executePayment(payment))
+        duePayments.map((payment) => this.executePayment(payment)),
       );
 
-      const succeeded = results.filter(r => r.status === 'fulfilled').length;
-      const failed = results.filter(r => r.status === 'rejected').length;
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.filter((r) => r.status === 'rejected').length;
 
       this.logger.log(`✅ Completed: ${succeeded} succeeded, ${failed} failed`);
     } catch (error) {
@@ -116,25 +116,29 @@ export class PaymentSchedulerService {
       }
 
       // Execute payment on Solana
-      this.logger.log(`💸 Executing payment for ${subscription.subscriptionPda}`);
-      
+      this.logger.log(
+        `💸 Executing payment for ${subscription.subscriptionPda}`,
+      );
+
       const result = await this.solanaPaymentService.executePayment(
         subscription.subscriptionPda,
         subscription.subscriptionWalletPda,
         subscription.merchantWallet,
-        subscription.feeAmount
+        subscription.feeAmount,
       );
 
       if (result.success) {
         // Update scheduled payment
         scheduledPayment.status = 'completed';
-        scheduledPayment.signature = result.signature;
+        scheduledPayment.signature = result.signature ?? '';
         scheduledPayment.executedAt = new Date();
         await this.scheduledPaymentRepo.save(scheduledPayment);
 
         // Update subscription
         subscription.lastPaymentTimestamp = (Date.now() / 1000).toString();
-        subscription.totalPaid = (BigInt(subscription.totalPaid) + BigInt(subscription.feeAmount)).toString();
+        subscription.totalPaid = (
+          BigInt(subscription.totalPaid) + BigInt(subscription.feeAmount)
+        ).toString();
         subscription.paymentCount += 1;
         await this.subscriptionRepo.save(subscription);
 
@@ -150,23 +154,30 @@ export class PaymentSchedulerService {
           paymentNumber: subscription.paymentCount,
         });
 
-        this.logger.log(`✅ Payment executed: ${result.signature}`);
+        this.logger.log(`✅ Payment executed: ${result.signature ?? ''}`);
       } else {
         throw new Error(result.error || 'Payment failed');
       }
     } catch (error) {
-      this.logger.error(`❌ Payment failed for ${scheduledPayment.subscriptionPda}:`, error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `❌ Payment failed for ${scheduledPayment.subscriptionPda}:`,
+        error,
+      );
 
       // Update scheduled payment with error
       scheduledPayment.status = 'failed';
-      scheduledPayment.errorMessage = error.message;
+      scheduledPayment.errorMessage = errorMessage;
       scheduledPayment.retryCount += 1;
 
       // Retry logic: Reschedule if retry count < 3
       if (scheduledPayment.retryCount < 3) {
         scheduledPayment.status = 'pending';
         scheduledPayment.scheduledFor = new Date(Date.now() + 5 * 60 * 1000); // Retry in 5 minutes
-        this.logger.log(`🔄 Rescheduling payment for retry (${scheduledPayment.retryCount}/3)`);
+        this.logger.log(
+          `🔄 Rescheduling payment for retry (${scheduledPayment.retryCount}/3)`,
+        );
       } else {
         // Max retries reached, notify merchant of failure
         const subscription = await this.subscriptionRepo.findOne({
@@ -200,7 +211,7 @@ export class PaymentSchedulerService {
       },
       {
         status: 'cancelled',
-      }
+      },
     );
 
     this.logger.log(`🚫 Cancelled scheduled payments for ${subscriptionPda}`);
