@@ -24,11 +24,11 @@ export default function ProfileScreen() {
   const { user, logout } = usePrivy();
   const { disconnect } = useWalletStore();
 
-  // Get user's email or OAuth info
-  const userEmail = user?.email?.address;
+  
   const userLinkedAccounts = user?.linked_accounts || [];
   const googleAccount = userLinkedAccounts.find((acc) => acc.type === 'google_oauth');
   const twitterAccount = userLinkedAccounts.find((acc) => acc.type === 'twitter_oauth');
+  const userEmail = googleAccount?.email || twitterAccount?.username || user?.id;
 
   const handleLogout = () => {
     Alert.alert(
@@ -62,7 +62,7 @@ export default function ProfileScreen() {
           {title}
         </Text>
       </View>
-      <ChevronRight size={20} color={colors.mutedForeground} />
+      <ChevronRight size={20} />
     </TouchableOpacity>
   );
 
@@ -75,7 +75,7 @@ export default function ProfileScreen() {
         {/* User Info Card */}
         <Card style={styles.userCard}>
           <View style={styles.userIcon}>
-            <UserIcon size={32} color={colors.primary} />
+            <UserIcon size={32} />
           </View>
           <View style={styles.userInfo}>
             <Text style={styles.userName}>
@@ -83,7 +83,7 @@ export default function ProfileScreen() {
             </Text>
             {userEmail && (
               <View style={styles.emailRow}>
-                <Mail size={14} color={colors.mutedForeground} />
+                <Mail size={14} />
                 <Text style={styles.userEmail}>{userEmail}</Text>
               </View>
             )}

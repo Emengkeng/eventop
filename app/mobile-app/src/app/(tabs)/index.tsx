@@ -1,4 +1,3 @@
-// app/(tabs)/index.tsx
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -56,7 +55,7 @@ export default function HomeScreen() {
             style={styles.walletIcon}
             onPress={() => router.push('/profile')}
           >
-            <Wallet size={24} color={colors.foreground} />
+            <Wallet size={24} />
           </TouchableOpacity>
         </View>
 
@@ -71,7 +70,7 @@ export default function HomeScreen() {
             <Text style={styles.balanceLabel}>Total Balance</Text>
             <TouchableOpacity onPress={() => router.push('/wallet/yield')}>
               <View style={styles.yieldBadge}>
-                <TrendingUp size={12} color={colors.success} />
+                <TrendingUp size={12} />
                 <Text style={styles.yieldText}>Coming Soon</Text>
               </View>
             </TouchableOpacity>
@@ -100,7 +99,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/wallet/deposit')}
             >
               <View style={styles.actionIcon}>
-                <ArrowDownRight size={20} color={colors.foreground} />
+                <ArrowDownRight size={20} />
               </View>
               <Text style={styles.actionText}>Deposit</Text>
             </TouchableOpacity>
@@ -110,7 +109,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/wallet/withdraw')}
             >
               <View style={styles.actionIcon}>
-                <ArrowUpRight size={20} color={colors.foreground} />
+                <ArrowUpRight size={20} />
               </View>
               <Text style={styles.actionText}>Withdraw</Text>
             </TouchableOpacity>
@@ -120,7 +119,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/subscriptions/browse')}
             >
               <View style={styles.actionIcon}>
-                <Plus size={20} color={colors.foreground} />
+                <Plus size={20} />
               </View>
               <Text style={styles.actionText}>Subscribe</Text>
             </TouchableOpacity>
@@ -132,7 +131,7 @@ export default function HomeScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Calendar size={20} color={colors.foreground} />
+                <Calendar size={20} />
                 <Text style={styles.sectionTitle}>Upcoming Payments</Text>
               </View>
             </View>

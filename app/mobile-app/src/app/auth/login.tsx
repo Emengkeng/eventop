@@ -108,7 +108,7 @@ export default function LoginScreen() {
         {/* Logo */}
         <View style={styles.iconContainer}>
           <View style={styles.icon}>
-            <Wallet size={48} color={colors.primary} />
+            <Wallet size={48} />
           </View>
         </View>
 
@@ -142,7 +142,7 @@ export default function LoginScreen() {
           ) : (
             <>
               <View style={styles.codeHeader}>
-                <Mail size={20} color={colors.primary} />
+                <Mail size={20} />
                 <Text style={styles.codeSent}>Code sent to {email}</Text>
               </View>
               <Input

@@ -43,7 +43,7 @@ export default function WalletConnectScreen() {
         {/* Logo/Icon */}
         <View style={styles.iconContainer}>
           <View style={styles.icon}>
-            <Wallet size={48} color={colors.primary} />
+            <Wallet size={48} />
           </View>
         </View>
 
@@ -56,7 +56,7 @@ export default function WalletConnectScreen() {
         {/* Features */}
         <View style={styles.features}>
           <Card style={styles.featureCard}>
-            <Shield size={24} color={colors.primary} />
+            <Shield size={24} />
             <Text style={styles.featureTitle}>Secure & Non-Custodial</Text>
             <Text style={styles.featureDescription}>
               Your wallet, your keys. We never have access to your funds.
@@ -64,7 +64,7 @@ export default function WalletConnectScreen() {
           </Card>
 
           <Card style={styles.featureCard}>
-            <TrendingUp size={24} color={colors.primary} />
+            <TrendingUp size={24} />
             <Text style={styles.featureTitle}>Earn Yield on Idle Funds</Text>
             <Text style={styles.featureDescription}>
               Turn on yield to earn interest on unused subscription balance.
@@ -72,7 +72,7 @@ export default function WalletConnectScreen() {
           </Card>
 
           <Card style={styles.featureCard}>
-            <Zap size={24} color={colors.primary} />
+            <Zap size={24} />
             <Text style={styles.featureTitle}>Automatic Payments</Text>
             <Text style={styles.featureDescription}>
               Never miss a payment. Subscriptions renew automatically.

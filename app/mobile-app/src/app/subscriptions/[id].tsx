@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Calendar, DollarSign, Activity, AlertCircle, Pause, X } from 'lucide-react-native';
+import { ArrowLeft, Calendar, DollarSign, Activity, AlertCircle } from 'lucide-react-native';
 import { format } from 'date-fns';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
@@ -76,7 +76,7 @@ export default function SubscriptionDetailScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={24} color={colors.foreground} />
+          <ArrowLeft size={24} />
         </TouchableOpacity>
         <Text style={styles.title}>Subscription Details</Text>
         <View style={{ width: 40 }} />
@@ -102,7 +102,7 @@ export default function SubscriptionDetailScreen() {
         {/* Next Payment Card */}
         <Card>
           <View style={styles.cardHeader}>
-            <Calendar size={20} color={colors.foreground} />
+            <Calendar size={20} />
             <Text style={styles.cardTitle}>Next Payment</Text>
           </View>
 
@@ -124,7 +124,7 @@ export default function SubscriptionDetailScreen() {
         {/* Payment History */}
         <Card>
           <View style={styles.cardHeader}>
-            <Activity size={20} color={colors.foreground} />
+            <Activity size={20} />
             <Text style={styles.cardTitle}>Payment History</Text>
           </View>
 
@@ -176,7 +176,7 @@ export default function SubscriptionDetailScreen() {
         {/* Subscription Info */}
         <Card>
           <View style={styles.cardHeader}>
-            <DollarSign size={20} color={colors.foreground} />
+            <DollarSign size={20} />
             <Text style={styles.cardTitle}>Subscription Info</Text>
           </View>
 
@@ -204,7 +204,7 @@ export default function SubscriptionDetailScreen() {
 
         {/* Warning Box */}
         <View style={styles.warningBox}>
-          <AlertCircle size={20} color={colors.warning} />
+          <AlertCircle size={20} />
           <View style={styles.warningContent}>
             <Text style={styles.warningTitle}>Automatic Renewal</Text>
             <Text style={styles.warningText}>

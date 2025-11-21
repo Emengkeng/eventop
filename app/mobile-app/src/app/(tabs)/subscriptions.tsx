@@ -72,7 +72,7 @@ export default function SubscriptionsScreen() {
           style={styles.addButton}
           onPress={() => router.push('/subscriptions/browse')}
         >
-          <Plus size={20} color={colors.foreground} />
+          <Plus size={20} />
         </TouchableOpacity>
       </View>
 

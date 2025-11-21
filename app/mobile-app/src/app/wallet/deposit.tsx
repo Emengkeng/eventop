@@ -101,7 +101,7 @@ export default function DepositScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={24} color={colors.foreground} />
+          <ArrowLeft size={24} />
         </TouchableOpacity>
         <Text style={styles.title}>Deposit Funds</Text>
         <View style={{ width: 40 }} />
@@ -111,7 +111,7 @@ export default function DepositScreen() {
         {/* Wallet Connection Card */}
         <Card>
           <View style={styles.cardHeader}>
-            <WalletIcon size={20} color={colors.foreground} />
+            <WalletIcon size={20} />
             <Text style={styles.cardTitle}>External Wallet</Text>
           </View>
 
@@ -181,7 +181,7 @@ export default function DepositScreen() {
               loading={loading}
               disabled={loading || !amount || parseFloat(amount) <= 0}
             >
-              Deposit {amount ? `$${amount}` : ''}
+              {`Deposit${amount ? ` $${amount}` : ''}`}
             </Button>
           </Card>
         )}
@@ -203,7 +203,7 @@ export default function DepositScreen() {
 
           <TouchableOpacity style={styles.viewExplorer}>
             <Text style={styles.viewExplorerText}>View on Explorer</Text>
-            <ExternalLink size={16} color={colors.primary} />
+            <ExternalLink size={16} />
           </TouchableOpacity>
         </Card>
 

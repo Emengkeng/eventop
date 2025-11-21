@@ -58,7 +58,7 @@ export default function BrowsePlansScreen() {
           </View>
 
           <View style={styles.subscribersContainer}>
-            <TrendingUp size={14} color={colors.mutedForeground} />
+            <TrendingUp size={14} />
             <Text style={styles.subscribers}>
               {item.totalSubscribers} subscriber{item.totalSubscribers !== 1 ? 's' : ''}
             </Text>
@@ -80,13 +80,13 @@ export default function BrowsePlansScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Browse Plans</Text>
         <TouchableOpacity style={styles.filterButton}>
-          <Filter size={20} color={colors.foreground} />
+          <Filter size={20} />
         </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <Search size={20} color={colors.mutedForeground} style={styles.searchIcon} />
+        <Search size={20} />
         <TextInput
           style={styles.searchInput}
           placeholder="Search subscriptions..."

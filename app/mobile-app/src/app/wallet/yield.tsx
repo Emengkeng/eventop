@@ -18,7 +18,7 @@ export default function YieldScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ArrowLeft size={24} color={colors.foreground} />
+          <ArrowLeft size={24} />
         </TouchableOpacity>
         <Text style={styles.title}>Yield Earning</Text>
         <View style={{ width: 40 }} />
@@ -28,17 +28,17 @@ export default function YieldScreen() {
         {/* Coming Soon Banner */}
         <Card style={styles.comingSoonBanner}>
           <View style={styles.comingSoonIcon}>
-            <Lock size={32} color={colors.primary} />
+            <Lock size={32} />
           </View>
           <Text style={styles.comingSoonTitle}>Coming Soon</Text>
           <Text style={styles.comingSoonDescription}>
-            Yield earning feature is currently under development. Soon you'll be able to earn passive income on your idle subscription balance!
+            Yield earning feature is currently under development. Soon you will be able to earn passive income on your idle subscription balance!
           </Text>
         </Card>
 
         {/* Preview: What You'll Earn */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>What You'll Earn</Text>
+          <Text style={styles.sectionTitle}>What You will Earn</Text>
           <Card>
             <View style={styles.yieldPreview}>
               <View style={styles.yieldItem}>
@@ -115,7 +115,7 @@ export default function YieldScreen() {
 
         {/* Info Box */}
         <View style={styles.infoBox}>
-          <Info size={20} color={colors.info} />
+          <Info size={20} />
           <View style={styles.infoContent}>
             <Text style={styles.infoTitle}>Safe & Secure</Text>
             <Text style={styles.infoText}>
