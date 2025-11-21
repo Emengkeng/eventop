@@ -10,6 +10,7 @@ import { MerchantPlan } from '../entities/merchant-plan.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { SubscriptionWallet } from '../entities/subscription-wallet.entity';
 import { Transaction } from '../entities/transaction.entity';
+import { ProgramEvent, TransactionRecordData, TransactionType } from '../types';
 
 @Injectable()
 export class IndexerService implements OnModuleInit {
@@ -37,6 +38,12 @@ export class IndexerService implements OnModuleInit {
   async onModuleInit() {
     this.logger.log('🚀 Initializing Indexer...');
 
+    // Initialize event parser with program
+    const program = this.solanaService.getProgram();
+    if (program) {
+      this.eventParser.setProgram(program);
+    }
+
     // Load last processed slot from DB
     await this.loadLastProcessedSlot();
 
@@ -52,7 +59,7 @@ export class IndexerService implements OnModuleInit {
   /**
    * Real-time log listener for new transactions
    */
-  private startLogListener() {
+  private startLogListener(): void {
     const connection = this.solanaService.getConnection();
     const programId = this.solanaService.getProgramId();
 
@@ -63,10 +70,10 @@ export class IndexerService implements OnModuleInit {
           this.logger.log(`📝 New logs detected at slot ${ctx.slot}`);
 
           try {
-            // Parse events from logs
+            // Parse events from logs using typed parser
             const events = this.eventParser.parseTransactionLogs(logs.logs);
 
-            // Process each event
+            // Process each event with proper typing
             for (const event of events) {
               await this.handleEvent(event, logs.signature, ctx.slot);
             }
@@ -85,77 +92,70 @@ export class IndexerService implements OnModuleInit {
   }
 
   /**
-   * Handle individual events
+   * Handle individual events with type discrimination
    */
-  private async handleEvent(event: any, signature: string, slot: number) {
+  private async handleEvent(
+    event: ProgramEvent,
+    signature: string,
+    slot: number,
+  ): Promise<void> {
     this.logger.log(`Processing event: ${event.name}`);
 
     switch (event.name) {
-      case 'MerchantPlanCreated':
-        await this.handleMerchantPlanCreated(event.data, signature, slot);
-        break;
-
       case 'SubscriptionWalletCreated':
-        await this.handleSubscriptionWalletCreated(event.data, signature, slot);
-        break;
-
-      case 'SubscriptionCreated':
-        await this.handleSubscriptionCreated(event.data, signature, slot);
-        break;
-
-      case 'PaymentExecuted':
-        await this.handlePaymentExecuted(event.data, signature, slot);
-        break;
-
-      case 'SubscriptionCancelled':
-        await this.handleSubscriptionCancelled(event.data, signature, slot);
+        await this.handleSubscriptionWalletCreated(event);
         break;
 
       case 'YieldEnabled':
-        await this.handleYieldEnabled(event.data);
+        await this.handleYieldEnabled(event);
+        break;
+
+      case 'WalletDeposit':
+        await this.handleWalletDeposit(event, signature, slot);
+        break;
+
+      case 'WalletWithdrawal':
+        await this.handleWalletWithdrawal(event, signature, slot);
+        break;
+
+      case 'SubscriptionCreated':
+        await this.handleSubscriptionCreated(event, signature, slot);
+        break;
+
+      case 'PaymentExecuted':
+        await this.handlePaymentExecuted(event, signature, slot);
+        break;
+
+      case 'SubscriptionCancelled':
+        await this.handleSubscriptionCancelled(event, signature, slot);
+        break;
+
+      case 'YieldClaimed':
+        await this.handleYieldClaimed(event, signature, slot);
         break;
 
       default:
-        this.logger.warn(`Unknown event type: ${event.name}`);
+        // TypeScript will ensure this is exhaustive
+        // const _exhaustive: never = event;
+        this.logger.warn(`Unhandled event type`);
     }
   }
 
   /**
-   * Event Handlers
+   * Event Handlers (now with proper typing)
    */
-  private async handleMerchantPlanCreated(
-    data: any,
-    // signature: string,
-    // slot: number,
-  ) {
-    const plan = this.merchantPlanRepo.create({
-      planPda: data.planPda || data.plan_pda,
-      merchantWallet: data.merchant,
-      planId: data.planId || data.plan_id,
-      planName: data.planName || data.plan_name,
-      mint: data.mint || 'USDC_MINT',
-      feeAmount: data.feeAmount?.toString() || data.fee_amount?.toString(),
-      paymentInterval:
-        data.paymentInterval?.toString() || data.payment_interval?.toString(),
-      isActive: true,
-      totalSubscribers: 0,
-      totalRevenue: '0',
-    });
-
-    await this.merchantPlanRepo.save(plan);
-
-    this.logger.log(`✅ Merchant plan created: ${plan.planId}`);
-  }
 
   private async handleSubscriptionWalletCreated(
-    data: any,
+    data: ProgramEvent,
     // signature: string,
     // slot: number,
-  ) {
+  ): Promise<void> {
+    if (data.name !== 'SubscriptionWalletCreated') return;
+
     const wallet = this.walletRepo.create({
-      walletPda: data.walletPda || data.wallet_pda,
-      ownerWallet: data.owner,
-      mint: data.mint,
+      walletPda: data.data.walletPda.toString(),
+      ownerWallet: data.data.owner.toString(),
+      mint: data.data.mint.toString(),
       isYieldEnabled: false,
       totalSubscriptions: 0,
       totalSpent: '0',
@@ -166,20 +166,85 @@ export class IndexerService implements OnModuleInit {
     this.logger.log(`✅ Subscription wallet created: ${wallet.walletPda}`);
   }
 
-  private async handleSubscriptionCreated(
-    data: any,
+  private async handleYieldEnabled(data: ProgramEvent): Promise<void> {
+    if (data.name !== 'YieldEnabled') return;
+    await this.walletRepo.update(
+      { walletPda: data.data.walletPda.toString() },
+      {
+        isYieldEnabled: true,
+        yieldStrategy: data.data.strategy,
+        yieldVault: data.data.vault.toString(),
+      },
+    );
+
+    this.logger.log(
+      `✅ Yield enabled for wallet: ${data.data.walletPda.toString()}`,
+    );
+  }
+
+  private async handleWalletDeposit(
+    data: ProgramEvent,
     signature: string,
     slot: number,
-  ) {
+  ): Promise<void> {
+    if (data.name !== 'WalletDeposit') return;
+    // Record the deposit transaction
+    await this.recordTransaction({
+      signature,
+      subscriptionPda: '', // No subscription involved
+      type: TransactionType.Deposit,
+      amount: data.data.amount.toString(),
+      fromWallet: data.data.user.toString(),
+      toWallet: data.data.walletPda.toString(),
+      slot,
+    });
+
+    this.logger.log(
+      `✅ Wallet deposit: ${data.data.amount.toString()} to ${data.data.walletPda.toString()}`,
+    );
+  }
+
+  private async handleWalletWithdrawal(
+    data: ProgramEvent,
+    signature: string,
+    slot: number,
+  ): Promise<void> {
+    if (data.name !== 'WalletWithdrawal') return;
+    await this.recordTransaction({
+      signature,
+      subscriptionPda: '',
+      type: TransactionType.Withdrawal,
+      amount: data.data.amount.toString(),
+      fromWallet: data.data.walletPda.toString(),
+      toWallet: data.data.user.toString(),
+      slot,
+    });
+
+    this.logger.log(
+      `✅ Wallet withdrawal: ${data.data.amount.toString()} from ${data.data.walletPda.toString()}`,
+    );
+  }
+
+  private async handleSubscriptionCreated(
+    data: ProgramEvent,
+    signature: string,
+    slot: number,
+  ): Promise<void> {
+    if (data.name !== 'SubscriptionCreated') return;
+    // Fetch the merchant plan to get fee details
+    const merchantPlan = await this.merchantPlanRepo.findOne({
+      where: { merchantWallet: data.data.merchant.toString() },
+    });
+
     const subscription = this.subscriptionRepo.create({
-      subscriptionPda: data.subscriptionPda || data.subscription_pda,
-      userWallet: data.user,
-      subscriptionWalletPda: data.wallet,
-      merchantWallet: data.merchant,
-      merchantPlanPda: data.planId || data.plan_id,
-      mint: 'USDC', // From event or default
-      feeAmount: '0', // Will be fetched from plan
-      paymentInterval: '0',
+      subscriptionPda: data.data.subscriptionPda.toString(),
+      userWallet: data.data.user.toString(),
+      subscriptionWalletPda: data.data.wallet.toString(),
+      merchantWallet: data.data.merchant.toString(),
+      merchantPlanPda: data.data.planId,
+      mint: merchantPlan?.mint || 'USDC',
+      feeAmount: merchantPlan?.feeAmount || '0',
+      paymentInterval: merchantPlan?.paymentInterval || '0',
       lastPaymentTimestamp: Date.now().toString(),
       totalPaid: '0',
       paymentCount: 0,
@@ -189,15 +254,17 @@ export class IndexerService implements OnModuleInit {
     await this.subscriptionRepo.save(subscription);
 
     // Update merchant plan subscriber count
-    await this.merchantPlanRepo.increment(
-      { planPda: subscription.merchantPlanPda },
-      'totalSubscribers',
-      1,
-    );
+    if (merchantPlan) {
+      await this.merchantPlanRepo.increment(
+        { planPda: merchantPlan.planPda },
+        'totalSubscribers',
+        1,
+      );
+    }
 
     // Update wallet subscription count
     await this.walletRepo.increment(
-      { walletPda: subscription.subscriptionWalletPda },
+      { walletPda: data.data.wallet.toString() },
       'totalSubscriptions',
       1,
     );
@@ -206,8 +273,8 @@ export class IndexerService implements OnModuleInit {
     await this.recordTransaction({
       signature,
       subscriptionPda: subscription.subscriptionPda,
-      type: 'subscription_created',
-      amount: data.amountPrepaid?.toString() || '0',
+      type: TransactionType.SubscriptionCreated,
+      amount: '0',
       fromWallet: subscription.userWallet,
       toWallet: subscription.merchantWallet,
       slot,
@@ -217,24 +284,24 @@ export class IndexerService implements OnModuleInit {
   }
 
   private async handlePaymentExecuted(
-    data: any,
+    data: ProgramEvent,
     signature: string,
     slot: number,
-  ) {
+  ): Promise<void> {
+    if (data.name !== 'PaymentExecuted') return;
     const subscription = await this.subscriptionRepo.findOne({
-      where: { subscriptionPda: data.subscriptionPda || data.subscription_pda },
+      where: { subscriptionPda: data.data.subscriptionPda.toString() },
     });
 
     if (subscription) {
-      const amount = data.amount?.toString() || '0';
+      const amount = data.data.amount.toString();
 
       // Update subscription
       subscription.totalPaid = (
         BigInt(subscription.totalPaid) + BigInt(amount)
       ).toString();
-      subscription.paymentCount += 1;
-      subscription.lastPaymentTimestamp =
-        data.timestamp?.toString() || Date.now().toString();
+      subscription.paymentCount = data.data.paymentNumber;
+      subscription.lastPaymentTimestamp = Date.now().toString();
 
       await this.subscriptionRepo.save(subscription);
 
@@ -256,7 +323,7 @@ export class IndexerService implements OnModuleInit {
       await this.recordTransaction({
         signature,
         subscriptionPda: subscription.subscriptionPda,
-        type: 'payment',
+        type: TransactionType.Payment,
         amount,
         fromWallet: subscription.userWallet,
         toWallet: subscription.merchantWallet,
@@ -264,18 +331,19 @@ export class IndexerService implements OnModuleInit {
       });
 
       this.logger.log(
-        `✅ Payment executed: ${amount} for ${subscription.subscriptionPda}`,
+        `✅ Payment #${data.data.paymentNumber} executed: ${amount} for ${subscription.subscriptionPda}`,
       );
     }
   }
 
   private async handleSubscriptionCancelled(
-    data: any,
+    data: ProgramEvent,
     signature: string,
     slot: number,
-  ) {
+  ): Promise<void> {
+    if (data.name !== 'SubscriptionCancelled') return;
     const subscription = await this.subscriptionRepo.findOne({
-      where: { subscriptionPda: data.subscriptionPda || data.subscription_pda },
+      where: { subscriptionPda: data.data.subscriptionPda.toString() },
     });
 
     if (subscription) {
@@ -301,8 +369,8 @@ export class IndexerService implements OnModuleInit {
       await this.recordTransaction({
         signature,
         subscriptionPda: subscription.subscriptionPda,
-        type: 'cancel',
-        amount: data.refundAmount?.toString() || '0',
+        type: TransactionType.Cancel,
+        amount: '0',
         fromWallet: subscription.merchantWallet,
         toWallet: subscription.userWallet,
         slot,
@@ -314,31 +382,32 @@ export class IndexerService implements OnModuleInit {
     }
   }
 
-  private async handleYieldEnabled(data: any) {
-    await this.walletRepo.update(
-      { walletPda: data.walletPda || data.wallet_pda },
-      {
-        isYieldEnabled: true,
-        yieldStrategy: data.strategy,
-        yieldVault: data.vault,
-      },
+  private async handleYieldClaimed(
+    data: ProgramEvent,
+    signature: string,
+    slot: number,
+  ): Promise<void> {
+    if (data.name !== 'YieldClaimed') return;
+    this.logger.log(
+      `✅ Yield claimed: ${data.data.amount.toString()} from wallet ${data.data.walletPda.toString()}`,
     );
 
-    this.logger.log(`✅ Yield enabled for wallet: ${data.walletPda}`);
+    // You can optionally record this as a transaction
+    await this.recordTransaction({
+      signature,
+      subscriptionPda: '',
+      type: TransactionType.Withdrawal, // Yield claim is a form of withdrawal
+      amount: data.data.amount.toString(),
+      fromWallet: data.data.walletPda.toString(),
+      toWallet: data.data.user.toString(),
+      slot,
+    });
   }
 
   /**
    * Record transaction in database
    */
-  private async recordTransaction(data: {
-    signature: string;
-    subscriptionPda: string;
-    type: string;
-    amount: string;
-    fromWallet: string;
-    toWallet: string;
-    slot: number;
-  }) {
+  private async recordTransaction(data: TransactionRecordData): Promise<void> {
     const transaction = this.transactionRepo.create({
       ...data,
       blockTime: Date.now().toString(),
@@ -352,7 +421,7 @@ export class IndexerService implements OnModuleInit {
    * Sync all existing accounts (run on startup or manually)
    */
   @Cron(CronExpression.EVERY_HOUR)
-  async syncAllAccounts() {
+  async syncAllAccounts(): Promise<void> {
     if (this.isIndexing) {
       this.logger.warn('Sync already in progress, skipping...');
       return;
@@ -379,21 +448,85 @@ export class IndexerService implements OnModuleInit {
     }
   }
 
-  private async syncMerchantPlans() {
-    // Fetch all merchant plan accounts from blockchain
-    // Parse and upsert into database
+  private async syncMerchantPlans(): Promise<void> {
     this.logger.log('Syncing merchant plans...');
+
+    const plans = await this.solanaService.getAllMerchantPlans();
+
+    for (const { pubkey, account } of plans) {
+      await this.merchantPlanRepo.upsert(
+        {
+          planPda: pubkey.toString(),
+          merchantWallet: account.merchant.toString(),
+          planId: account.planId,
+          planName: account.planName,
+          mint: account.mint.toString(),
+          feeAmount: account.feeAmount.toString(),
+          paymentInterval: account.paymentInterval.toString(),
+          isActive: account.isActive,
+          totalSubscribers: account.totalSubscribers,
+          totalRevenue: '0', // This would need to be calculated
+        },
+        ['planPda'],
+      );
+    }
+
+    this.logger.log(`✅ Synced ${plans.length} merchant plans`);
   }
 
-  private async syncSubscriptionWallets() {
+  private async syncSubscriptionWallets(): Promise<void> {
     this.logger.log('Syncing subscription wallets...');
+
+    const wallets = await this.solanaService.getAllSubscriptionWallets();
+
+    for (const { pubkey, account } of wallets) {
+      await this.walletRepo.upsert(
+        {
+          walletPda: pubkey.toString(),
+          ownerWallet: account.owner.toString(),
+          mint: account.mint.toString(),
+          isYieldEnabled: account.isYieldEnabled,
+          yieldStrategy: account.yieldStrategy,
+          yieldVault: account.yieldVault.toString(),
+          totalSubscriptions: account.totalSubscriptions,
+          totalSpent: account.totalSpent.toString(),
+        },
+        ['walletPda'],
+      );
+    }
+
+    this.logger.log(`✅ Synced ${wallets.length} subscription wallets`);
   }
 
-  private async syncSubscriptions() {
+  private async syncSubscriptions(): Promise<void> {
     this.logger.log('Syncing subscriptions...');
+
+    const subscriptions = await this.solanaService.getAllSubscriptions();
+
+    for (const { pubkey, account } of subscriptions) {
+      await this.subscriptionRepo.upsert(
+        {
+          subscriptionPda: pubkey.toString(),
+          userWallet: account.user.toString(),
+          subscriptionWalletPda: account.subscriptionWallet.toString(),
+          merchantWallet: account.merchant.toString(),
+          merchantPlanPda: account.merchantPlan.toString(),
+          mint: account.mint.toString(),
+          feeAmount: account.feeAmount.toString(),
+          paymentInterval: account.paymentInterval.toString(),
+          lastPaymentTimestamp: account.lastPaymentTimestamp.toString(),
+          totalPaid: account.totalPaid.toString(),
+          paymentCount: account.paymentCount,
+          isActive: account.isActive,
+        },
+        ['subscriptionPda'],
+      );
+    }
+
+    this.logger.log(`✅ Synced ${subscriptions.length} subscriptions`);
   }
 
-  private async loadLastProcessedSlot() {
+  private async loadLastProcessedSlot(): Promise<void> {
     // Load from DB or start from current slot
     const connection = this.solanaService.getConnection();
     this.lastProcessedSlot = await connection.getSlot('confirmed');
