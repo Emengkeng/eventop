@@ -1,123 +1,198 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Injectable } from '@nestjs/common';
-import { EventParser } from '@coral-xyz/anchor';
+import { Program, BN, EventParser, Event } from '@coral-xyz/anchor';
+import { PublicKey } from '@solana/web3.js';
+import {
+  ProgramEvent,
+  SubscriptionWalletCreatedEvent,
+  YieldEnabledEvent,
+  WalletDepositEvent,
+  WalletWithdrawalEvent,
+  SubscriptionCreatedEvent,
+  PaymentExecutedEvent,
+  SubscriptionCancelledEvent,
+  YieldClaimedEvent,
+} from '../types';
 
 @Injectable()
 export class EventParserService {
-  private eventParser: EventParser;
+  private eventParser: EventParser | null = null;
 
-  constructor() {
-    // Initialize with your program IDL
-    // this.eventParser = new EventParser(programId, coder);
+  /**
+   * Initialize with your Anchor program
+   */
+  setProgram(program: Program): void {
+    this.eventParser = new EventParser(program.programId, program.coder);
   }
 
-  parseTransactionLogs(logs: string[]): any[] {
-    const events = [];
+  /**
+   * Parse transaction logs and extract typed events
+   */
+  parseTransactionLogs(logs: string[]): ProgramEvent[] {
+    const events: ProgramEvent[] = [];
 
-    for (const log of logs) {
-      try {
-        // Look for program log events
-        if (log.startsWith('Program log:')) {
-          const eventData = this.extractEventData(log);
-          if (eventData) {
-            events.push(eventData);
-          }
-        }
+    if (!this.eventParser) {
+      console.warn('EventParser not initialized. Call setProgram() first.');
+      return events;
+    }
 
-        // Look for program data events
-        if (log.startsWith('Program data:')) {
-          const base64Data = log.replace('Program data: ', '');
-          const eventData = this.decodeEventData(base64Data);
-          if (eventData) {
-            events.push(eventData);
-          }
+    try {
+      // Use Anchor's event parser to extract events from logs
+      const parsedEvents = this.eventParser.parseLogs(logs);
+
+      for (const event of parsedEvents) {
+        const typedEvent = this.mapAnchorEventToTyped(event);
+        if (typedEvent) {
+          events.push(typedEvent);
         }
-      } catch (error) {
-        console.error('Error parsing log:', error);
       }
+    } catch (error) {
+      console.error('Error parsing transaction logs:', error);
     }
 
     return events;
   }
 
-  private extractEventData(log: string): any {
-    // Parse custom event formats
-    // Example: "Program log: SubscriptionCreated: {...}"
-
-    if (log.includes('SubscriptionCreated')) {
-      return this.parseSubscriptionCreated(log);
-    }
-
-    if (log.includes('PaymentExecuted')) {
-      return this.parsePaymentExecuted(log);
-    }
-
-    if (log.includes('SubscriptionCancelled')) {
-      return this.parseSubscriptionCancelled(log);
-    }
-
-    return null;
-  }
-
-  private decodeEventData(base64Data: string): any {
+  /**
+   * Map Anchor event to our typed event structure
+   */
+  private mapAnchorEventToTyped(event: Event): ProgramEvent | null {
     try {
-      const buffer = Buffer.from(base64Data, 'base64');
-      // Decode using Borsh or custom decoder
-      // This depends on your program's event encoding
-      return this.decodeEvent(buffer);
+      switch (event.name) {
+        case 'SubscriptionWalletCreated':
+          return {
+            name: 'SubscriptionWalletCreated',
+            data: this.parseSubscriptionWalletCreated(event.data),
+          };
+
+        case 'YieldEnabled':
+          return {
+            name: 'YieldEnabled',
+            data: this.parseYieldEnabled(event.data),
+          };
+
+        case 'WalletDeposit':
+          return {
+            name: 'WalletDeposit',
+            data: this.parseWalletDeposit(event.data),
+          };
+
+        case 'WalletWithdrawal':
+          return {
+            name: 'WalletWithdrawal',
+            data: this.parseWalletWithdrawal(event.data),
+          };
+
+        case 'SubscriptionCreated':
+          return {
+            name: 'SubscriptionCreated',
+            data: this.parseSubscriptionCreated(event.data),
+          };
+
+        case 'PaymentExecuted':
+          return {
+            name: 'PaymentExecuted',
+            data: this.parsePaymentExecuted(event.data),
+          };
+
+        case 'SubscriptionCancelled':
+          return {
+            name: 'SubscriptionCancelled',
+            data: this.parseSubscriptionCancelled(event.data),
+          };
+
+        case 'YieldClaimed':
+          return {
+            name: 'YieldClaimed',
+            data: this.parseYieldClaimed(event.data),
+          };
+
+        default:
+          console.warn(`Unknown event type: ${event.name}`);
+          return null;
+      }
     } catch (error) {
+      console.error(`Error mapping event ${event.name}:`, error);
       return null;
     }
   }
 
-  private parseSubscriptionCreated(log: string): any {
-    // Custom parsing logic for SubscriptionCreated event
-    // Adjust based on your actual event format
-    const match = log.match(/SubscriptionCreated: (.+)/);
-    if (match) {
-      try {
-        return {
-          name: 'SubscriptionCreated',
-          data: JSON.parse(match[1]),
-        };
-      } catch (e) {
-        return null;
-      }
-    }
-    return null;
+  // ============================================
+  // EVENT PARSERS
+  // ============================================
+
+  private parseSubscriptionWalletCreated(
+    data: any,
+  ): SubscriptionWalletCreatedEvent {
+    return {
+      walletPda: new PublicKey(data.walletPda),
+      owner: new PublicKey(data.owner),
+      mint: new PublicKey(data.mint),
+    };
   }
 
-  private parsePaymentExecuted(log: string): any {
-    const match = log.match(/PaymentExecuted: (.+)/);
-    if (match) {
-      try {
-        return {
-          name: 'PaymentExecuted',
-          data: JSON.parse(match[1]),
-        };
-      } catch (e) {
-        return null;
-      }
-    }
-    return null;
+  private parseYieldEnabled(data: any): YieldEnabledEvent {
+    return {
+      walletPda: new PublicKey(data.walletPda),
+      strategy: data.strategy,
+      vault: new PublicKey(data.vault),
+    };
   }
 
-  private parseSubscriptionCancelled(log: string): any {
-    const match = log.match(/SubscriptionCancelled: (.+)/);
-    if (match) {
-      try {
-        return {
-          name: 'SubscriptionCancelled',
-          data: JSON.parse(match[1]),
-        };
-      } catch (e) {
-        return null;
-      }
-    }
-    return null;
+  private parseWalletDeposit(data: any): WalletDepositEvent {
+    return {
+      walletPda: new PublicKey(data.walletPda),
+      user: new PublicKey(data.user),
+      amount: new BN(data.amount),
+      depositedToYield: data.depositedToYield,
+    };
   }
 
-  private decodeEvent(buffer: Buffer): any {
-    // Implement Borsh deserialization based on your event structure
-    return null;
+  private parseWalletWithdrawal(data: any): WalletWithdrawalEvent {
+    return {
+      walletPda: new PublicKey(data.walletPda),
+      user: new PublicKey(data.user),
+      amount: new BN(data.amount),
+    };
+  }
+
+  private parseSubscriptionCreated(data: any): SubscriptionCreatedEvent {
+    return {
+      subscriptionPda: new PublicKey(data.subscriptionPda),
+      user: new PublicKey(data.user),
+      wallet: new PublicKey(data.wallet),
+      merchant: new PublicKey(data.merchant),
+      planId: data.planId,
+    };
+  }
+
+  private parsePaymentExecuted(data: any): PaymentExecutedEvent {
+    return {
+      subscriptionPda: new PublicKey(data.subscriptionPda),
+      walletPda: new PublicKey(data.walletPda),
+      user: new PublicKey(data.user),
+      merchant: new PublicKey(data.merchant),
+      amount: new BN(data.amount),
+      paymentNumber: data.paymentNumber,
+    };
+  }
+
+  private parseSubscriptionCancelled(data: any): SubscriptionCancelledEvent {
+    return {
+      subscriptionPda: new PublicKey(data.subscriptionPda),
+      walletPda: new PublicKey(data.walletPda),
+      user: new PublicKey(data.user),
+      merchant: new PublicKey(data.merchant),
+      paymentsMade: data.paymentsMade,
+    };
+  }
+
+  private parseYieldClaimed(data: any): YieldClaimedEvent {
+    return {
+      walletPda: new PublicKey(data.walletPda),
+      user: new PublicKey(data.user),
+      amount: new BN(data.amount),
+    };
   }
 }
