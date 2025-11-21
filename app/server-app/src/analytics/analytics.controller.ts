@@ -12,7 +12,7 @@ export class AnalyticsController {
   ) {
     return this.analyticsService.getRevenueChart(
       wallet,
-      days ? parseInt(days.toString()) : 30
+      days ? parseInt(days.toString()) : 30,
     );
   }
 
@@ -23,7 +23,7 @@ export class AnalyticsController {
   ) {
     return this.analyticsService.getSubscriberGrowth(
       wallet,
-      days ? parseInt(days.toString()) : 30
+      days ? parseInt(days.toString()) : 30,
     );
   }
 

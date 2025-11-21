@@ -10,10 +10,10 @@ export class AnalyticsService {
   constructor(
     @InjectRepository(Subscription)
     private subscriptionRepo: Repository<Subscription>,
-    
+
     @InjectRepository(Transaction)
     private transactionRepo: Repository<Transaction>,
-    
+
     @InjectRepository(MerchantPlan)
     private planRepo: Repository<MerchantPlan>,
   ) {}
@@ -37,7 +37,7 @@ export class AnalyticsService {
     for (const tx of transactions) {
       const date = new Date(parseInt(tx.blockTime) * 1000);
       const dateKey = date.toISOString().split('T')[0];
-      
+
       const current = revenueByDay.get(dateKey) || BigInt(0);
       revenueByDay.set(dateKey, current + BigInt(tx.amount));
     }
@@ -82,7 +82,7 @@ export class AnalyticsService {
     });
 
     const total = subscriptions.length;
-    const cancelled = subscriptions.filter(s => !s.isActive).length;
+    const cancelled = subscriptions.filter((s) => !s.isActive).length;
 
     return {
       totalSubscriptions: total,
@@ -96,15 +96,19 @@ export class AnalyticsService {
       where: { merchantWallet },
     });
 
-    return plans.map(plan => ({
-      planId: plan.planId,
-      planName: plan.planName,
-      subscribers: plan.totalSubscribers,
-      revenue: plan.totalRevenue,
-      avgRevenuePerSubscriber: 
-        plan.totalSubscribers > 0
-          ? (BigInt(plan.totalRevenue) / BigInt(plan.totalSubscribers)).toString()
-          : '0',
-    })).sort((a, b) => b.subscribers - a.subscribers);
+    return plans
+      .map((plan) => ({
+        planId: plan.planId,
+        planName: plan.planName,
+        subscribers: plan.totalSubscribers,
+        revenue: plan.totalRevenue,
+        avgRevenuePerSubscriber:
+          plan.totalSubscribers > 0
+            ? (
+                BigInt(plan.totalRevenue) / BigInt(plan.totalSubscribers)
+              ).toString()
+            : '0',
+      }))
+      .sort((a, b) => b.subscribers - a.subscribers);
   }
 }
