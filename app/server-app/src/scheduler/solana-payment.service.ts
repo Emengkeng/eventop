@@ -136,9 +136,9 @@ export class SolanaPaymentService {
   ): Promise<PublicKey> {
     // Get merchant's associated token account
     const { getAssociatedTokenAddress } = await import('@solana/spl-token');
-    const USDC_MINT = new PublicKey(USDC_MINT);
+    const USDC_MINTs = new PublicKey(USDC_MINT);
 
-    return getAssociatedTokenAddress(USDC_MINT, merchantPubkey);
+    return getAssociatedTokenAddress(USDC_MINTs, merchantPubkey);
   }
 
   private async deriveMerchantPlanPda(
