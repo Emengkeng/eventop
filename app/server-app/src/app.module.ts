@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -8,7 +10,14 @@ import { SubscriptionModule } from './subscription/subscription.module';
 import { MerchantModule } from './merchant/merchant.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { AnalyticsModule } from './analytics/analytics.module';
-import { DB_PORT, DB_NAME, DB_PASSWORD, DB_USER } from './config';
+import {
+  DB_PORT,
+  DB_NAME,
+  DB_HOST,
+  DB_PASSWORD,
+  DB_USER,
+  NODE_ENV,
+} from './config';
 
 @Module({
   imports: [
@@ -16,11 +25,11 @@ import { DB_PORT, DB_NAME, DB_PASSWORD, DB_USER } from './config';
 
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(DB_PORT) || 5432,
-      username: DB_USER || 'postgres',
-      password: DB_PASSWORD || 'password',
-      database: DB_NAME || 'subscription_wallet',
+      host: DB_HOST,
+      port: parseInt(DB_PORT!),
+      username: DB_USER,
+      password: DB_PASSWORD,
+      database: DB_NAME,
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       synchronize: NODE_ENV === 'development',
     }),
