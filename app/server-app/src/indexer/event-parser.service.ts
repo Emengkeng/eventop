@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BorshCoder, EventParser } from '@coral-xyz/anchor';
-import * as bs58 from 'bs58';
+import { EventParser } from '@coral-xyz/anchor';
 
 @Injectable()
 export class EventParserService {
@@ -43,15 +42,15 @@ export class EventParserService {
   private extractEventData(log: string): any {
     // Parse custom event formats
     // Example: "Program log: SubscriptionCreated: {...}"
-    
+
     if (log.includes('SubscriptionCreated')) {
       return this.parseSubscriptionCreated(log);
     }
-    
+
     if (log.includes('PaymentExecuted')) {
       return this.parsePaymentExecuted(log);
     }
-    
+
     if (log.includes('SubscriptionCancelled')) {
       return this.parseSubscriptionCancelled(log);
     }

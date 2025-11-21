@@ -20,32 +20,32 @@ export class IndexerService implements OnModuleInit {
   constructor(
     @InjectRepository(MerchantPlan)
     private merchantPlanRepo: Repository<MerchantPlan>,
-    
+
     @InjectRepository(Subscription)
     private subscriptionRepo: Repository<Subscription>,
-    
+
     @InjectRepository(SubscriptionWallet)
     private walletRepo: Repository<SubscriptionWallet>,
-    
+
     @InjectRepository(Transaction)
     private transactionRepo: Repository<Transaction>,
-    
+
     private solanaService: SolanaService,
     private eventParser: EventParserService,
   ) {}
 
   async onModuleInit() {
     this.logger.log('🚀 Initializing Indexer...');
-    
+
     // Load last processed slot from DB
     await this.loadLastProcessedSlot();
-    
+
     // Start listening to program logs
     this.startLogListener();
-    
+
     // Initial sync
     await this.syncAllAccounts();
-    
+
     this.logger.log('✅ Indexer initialized');
   }
 
@@ -58,26 +58,27 @@ export class IndexerService implements OnModuleInit {
 
     connection.onLogs(
       programId,
-      async (logs, ctx) => {
-        this.logger.log(`📝 New logs detected at slot ${ctx.slot}`);
-        
-        try {
-          // Parse events from logs
-          const events = this.eventParser.parseTransactionLogs(logs.logs);
-          
-          // Process each event
-          for (const event of events) {
-            await this.handleEvent(event, logs.signature, ctx.slot);
+      (logs, ctx) => {
+        void (async () => {
+          this.logger.log(`📝 New logs detected at slot ${ctx.slot}`);
+
+          try {
+            // Parse events from logs
+            const events = this.eventParser.parseTransactionLogs(logs.logs);
+
+            // Process each event
+            for (const event of events) {
+              await this.handleEvent(event, logs.signature, ctx.slot);
+            }
+
+            // Update last processed slot
+            this.lastProcessedSlot = ctx.slot;
+          } catch (error) {
+            this.logger.error('Error processing logs:', error);
           }
-          
-          // Update last processed slot
-          this.lastProcessedSlot = ctx.slot;
-          
-        } catch (error) {
-          this.logger.error('Error processing logs:', error);
-        }
+        })();
       },
-      'confirmed'
+      'confirmed',
     );
 
     this.logger.log('👂 Listening for program logs...');
@@ -93,27 +94,27 @@ export class IndexerService implements OnModuleInit {
       case 'MerchantPlanCreated':
         await this.handleMerchantPlanCreated(event.data, signature, slot);
         break;
-        
+
       case 'SubscriptionWalletCreated':
         await this.handleSubscriptionWalletCreated(event.data, signature, slot);
         break;
-        
+
       case 'SubscriptionCreated':
         await this.handleSubscriptionCreated(event.data, signature, slot);
         break;
-        
+
       case 'PaymentExecuted':
         await this.handlePaymentExecuted(event.data, signature, slot);
         break;
-        
+
       case 'SubscriptionCancelled':
         await this.handleSubscriptionCancelled(event.data, signature, slot);
         break;
-        
+
       case 'YieldEnabled':
         await this.handleYieldEnabled(event.data);
         break;
-        
+
       default:
         this.logger.warn(`Unknown event type: ${event.name}`);
     }
@@ -122,7 +123,11 @@ export class IndexerService implements OnModuleInit {
   /**
    * Event Handlers
    */
-  private async handleMerchantPlanCreated(data: any, signature: string, slot: number) {
+  private async handleMerchantPlanCreated(
+    data: any,
+    // signature: string,
+    // slot: number,
+  ) {
     const plan = this.merchantPlanRepo.create({
       planPda: data.planPda || data.plan_pda,
       merchantWallet: data.merchant,
@@ -130,18 +135,23 @@ export class IndexerService implements OnModuleInit {
       planName: data.planName || data.plan_name,
       mint: data.mint || 'USDC_MINT',
       feeAmount: data.feeAmount?.toString() || data.fee_amount?.toString(),
-      paymentInterval: data.paymentInterval?.toString() || data.payment_interval?.toString(),
+      paymentInterval:
+        data.paymentInterval?.toString() || data.payment_interval?.toString(),
       isActive: true,
       totalSubscribers: 0,
       totalRevenue: '0',
     });
 
     await this.merchantPlanRepo.save(plan);
-    
+
     this.logger.log(`✅ Merchant plan created: ${plan.planId}`);
   }
 
-  private async handleSubscriptionWalletCreated(data: any, signature: string, slot: number) {
+  private async handleSubscriptionWalletCreated(
+    data: any,
+    // signature: string,
+    // slot: number,
+  ) {
     const wallet = this.walletRepo.create({
       walletPda: data.walletPda || data.wallet_pda,
       ownerWallet: data.owner,
@@ -152,11 +162,15 @@ export class IndexerService implements OnModuleInit {
     });
 
     await this.walletRepo.save(wallet);
-    
+
     this.logger.log(`✅ Subscription wallet created: ${wallet.walletPda}`);
   }
 
-  private async handleSubscriptionCreated(data: any, signature: string, slot: number) {
+  private async handleSubscriptionCreated(
+    data: any,
+    signature: string,
+    slot: number,
+  ) {
     const subscription = this.subscriptionRepo.create({
       subscriptionPda: data.subscriptionPda || data.subscription_pda,
       userWallet: data.user,
@@ -173,21 +187,21 @@ export class IndexerService implements OnModuleInit {
     });
 
     await this.subscriptionRepo.save(subscription);
-    
+
     // Update merchant plan subscriber count
     await this.merchantPlanRepo.increment(
       { planPda: subscription.merchantPlanPda },
       'totalSubscribers',
-      1
+      1,
     );
-    
+
     // Update wallet subscription count
     await this.walletRepo.increment(
       { walletPda: subscription.subscriptionWalletPda },
       'totalSubscriptions',
-      1
+      1,
     );
-    
+
     // Record transaction
     await this.recordTransaction({
       signature,
@@ -198,39 +212,46 @@ export class IndexerService implements OnModuleInit {
       toWallet: subscription.merchantWallet,
       slot,
     });
-    
+
     this.logger.log(`✅ Subscription created: ${subscription.subscriptionPda}`);
   }
 
-  private async handlePaymentExecuted(data: any, signature: string, slot: number) {
+  private async handlePaymentExecuted(
+    data: any,
+    signature: string,
+    slot: number,
+  ) {
     const subscription = await this.subscriptionRepo.findOne({
       where: { subscriptionPda: data.subscriptionPda || data.subscription_pda },
     });
 
     if (subscription) {
       const amount = data.amount?.toString() || '0';
-      
+
       // Update subscription
-      subscription.totalPaid = (BigInt(subscription.totalPaid) + BigInt(amount)).toString();
+      subscription.totalPaid = (
+        BigInt(subscription.totalPaid) + BigInt(amount)
+      ).toString();
       subscription.paymentCount += 1;
-      subscription.lastPaymentTimestamp = data.timestamp?.toString() || Date.now().toString();
-      
+      subscription.lastPaymentTimestamp =
+        data.timestamp?.toString() || Date.now().toString();
+
       await this.subscriptionRepo.save(subscription);
-      
+
       // Update merchant plan revenue
       await this.merchantPlanRepo.increment(
         { planPda: subscription.merchantPlanPda },
         'totalRevenue',
-        parseInt(amount)
+        parseInt(amount),
       );
-      
+
       // Update wallet total spent
       await this.walletRepo.increment(
         { walletPda: subscription.subscriptionWalletPda },
         'totalSpent',
-        parseInt(amount)
+        parseInt(amount),
       );
-      
+
       // Record transaction
       await this.recordTransaction({
         signature,
@@ -241,12 +262,18 @@ export class IndexerService implements OnModuleInit {
         toWallet: subscription.merchantWallet,
         slot,
       });
-      
-      this.logger.log(`✅ Payment executed: ${amount} for ${subscription.subscriptionPda}`);
+
+      this.logger.log(
+        `✅ Payment executed: ${amount} for ${subscription.subscriptionPda}`,
+      );
     }
   }
 
-  private async handleSubscriptionCancelled(data: any, signature: string, slot: number) {
+  private async handleSubscriptionCancelled(
+    data: any,
+    signature: string,
+    slot: number,
+  ) {
     const subscription = await this.subscriptionRepo.findOne({
       where: { subscriptionPda: data.subscriptionPda || data.subscription_pda },
     });
@@ -254,22 +281,22 @@ export class IndexerService implements OnModuleInit {
     if (subscription) {
       subscription.isActive = false;
       subscription.cancelledAt = new Date();
-      
+
       await this.subscriptionRepo.save(subscription);
-      
+
       // Decrement counts
       await this.merchantPlanRepo.decrement(
         { planPda: subscription.merchantPlanPda },
         'totalSubscribers',
-        1
+        1,
       );
-      
+
       await this.walletRepo.decrement(
         { walletPda: subscription.subscriptionWalletPda },
         'totalSubscriptions',
-        1
+        1,
       );
-      
+
       // Record transaction
       await this.recordTransaction({
         signature,
@@ -280,8 +307,10 @@ export class IndexerService implements OnModuleInit {
         toWallet: subscription.userWallet,
         slot,
       });
-      
-      this.logger.log(`✅ Subscription cancelled: ${subscription.subscriptionPda}`);
+
+      this.logger.log(
+        `✅ Subscription cancelled: ${subscription.subscriptionPda}`,
+      );
     }
   }
 
@@ -292,9 +321,9 @@ export class IndexerService implements OnModuleInit {
         isYieldEnabled: true,
         yieldStrategy: data.strategy,
         yieldVault: data.vault,
-      }
+      },
     );
-    
+
     this.logger.log(`✅ Yield enabled for wallet: ${data.walletPda}`);
   }
 
@@ -335,13 +364,13 @@ export class IndexerService implements OnModuleInit {
     try {
       // Sync merchant plans
       await this.syncMerchantPlans();
-      
+
       // Sync subscription wallets
       await this.syncSubscriptionWallets();
-      
+
       // Sync subscriptions
       await this.syncSubscriptions();
-      
+
       this.logger.log('✅ Account sync completed');
     } catch (error) {
       this.logger.error('Error during sync:', error);

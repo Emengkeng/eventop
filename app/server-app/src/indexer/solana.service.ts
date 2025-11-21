@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { AnchorProvider, Program } from '@coral-xyz/anchor';
+import { Program } from '@coral-xyz/anchor';
+import { PROGRAM_ID } from '../config';
 
 @Injectable()
 export class SolanaService implements OnModuleInit {
@@ -11,11 +12,11 @@ export class SolanaService implements OnModuleInit {
   onModuleInit() {
     this.connection = new Connection(
       process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
-      'confirmed'
+      'confirmed',
     );
 
-    this.programId = new PublicKey(process.env.PROGRAM_ID);
-    
+    this.programId = new PublicKey(PROGRAM_ID);
+
     console.log('✅ Solana connection established');
     console.log('📍 Program ID:', this.programId.toString());
   }

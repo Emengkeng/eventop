@@ -11,10 +11,10 @@ export class MerchantService {
   constructor(
     @InjectRepository(Merchant)
     private merchantRepo: Repository<Merchant>,
-    
+
     @InjectRepository(MerchantPlan)
     private planRepo: Repository<MerchantPlan>,
-    
+
     @InjectRepository(Subscription)
     private subscriptionRepo: Repository<Subscription>,
   ) {}
@@ -104,7 +104,7 @@ export class MerchantService {
     if (query.search) {
       qb.andWhere(
         '(plan.planName ILIKE :search OR plan.description ILIKE :search)',
-        { search: `%${query.search}%` }
+        { search: `%${query.search}%` },
       );
     }
 
@@ -125,13 +125,13 @@ export class MerchantService {
 
     const totalRevenue = plans.reduce(
       (sum, plan) => sum + BigInt(plan.totalRevenue),
-      BigInt(0)
+      BigInt(0),
     );
 
-    const activeSubscribers = subscriptions.filter(s => s.isActive).length;
+    const activeSubscribers = subscriptions.filter((s) => s.isActive).length;
 
     const mrr = subscriptions
-      .filter(s => s.isActive)
+      .filter((s) => s.isActive)
       .reduce((sum, s) => {
         // Calculate monthly recurring revenue
         const interval = parseInt(s.paymentInterval);
@@ -145,7 +145,7 @@ export class MerchantService {
       activeSubscribers,
       totalPlans: plans.length,
       monthlyRecurringRevenue: mrr.toString(),
-      plans: plans.map(plan => ({
+      plans: plans.map((plan) => ({
         planId: plan.planId,
         planName: plan.planName,
         subscribers: plan.totalSubscribers,
@@ -179,7 +179,7 @@ export class MerchantService {
       if (sub.isActive) customer.activeSubscriptions++;
     }
 
-    return Array.from(customerMap.values()).map(c => ({
+    return Array.from(customerMap.values()).map((c) => ({
       ...c,
       totalSpent: c.totalSpent.toString(),
     }));

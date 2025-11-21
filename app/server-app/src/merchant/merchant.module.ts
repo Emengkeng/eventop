@@ -7,9 +7,7 @@ import { MerchantPlan } from '../entities/merchant-plan.entity';
 import { Subscription } from '../entities/subscription.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Merchant, MerchantPlan, Subscription]),
-  ],
+  imports: [TypeOrmModule.forFeature([Merchant, MerchantPlan, Subscription])],
   controllers: [MerchantController],
   providers: [MerchantService],
   exports: [MerchantService],
