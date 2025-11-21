@@ -6,6 +6,7 @@ import {
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
 import { AnchorProvider, Program, Wallet } from '@coral-xyz/anchor';
+import { USDC_MINT, PAYER_SECRET_KEY, PROGRAM_ID } from '../config';
 
 @Injectable()
 export class SolanaPaymentService {
@@ -23,7 +24,7 @@ export class SolanaPaymentService {
 
     // Load payer keypair (backend wallet that pays for transactions)
     // In production, use a secure key management service
-    const secretKey = JSON.parse(process.env.PAYER_SECRET_KEY || '[]');
+    const secretKey = JSON.parse(PAYER_SECRET_KEY || '[]');
     this.payerKeypair = Keypair.fromSecretKey(new Uint8Array(secretKey));
 
     this.logger.log(
@@ -41,7 +42,7 @@ export class SolanaPaymentService {
     });
 
     // Load IDL and create program instance
-    const programId = new PublicKey(process.env.PROGRAM_ID);
+    const programId = new PublicKey(PROGRAM_ID);
     const idl = await Program.fetchIdl(programId, provider);
 
     this.program = new Program(idl, programId, provider);
@@ -56,7 +57,6 @@ export class SolanaPaymentService {
     subscriptionPda: string,
     subscriptionWalletPda: string,
     merchantWallet: string,
-    amount: string,
   ): Promise<{ success: boolean; signature?: string; error?: string }> {
     try {
       // Derive necessary PDAs
@@ -109,11 +109,13 @@ export class SolanaPaymentService {
         signature,
       };
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
       this.logger.error('Payment execution failed:', error);
 
       return {
         success: false,
-        error: error.message,
+        error: errorMessage,
       };
     }
   }
@@ -122,8 +124,11 @@ export class SolanaPaymentService {
     walletPda: PublicKey,
   ): Promise<PublicKey> {
     // Derive or fetch the wallet's token account
+    const walletAccountInfo =
+      await this.program.account.subscriptionWallet.fetch(walletPda);
     // This depends on your program's account structure
-    return PublicKey.default; // Placeholder
+    return walletAccountInfo.a;
+    // return PublicKey.default; // Placeholder
   }
 
   private async getMerchantTokenAccount(
@@ -131,7 +136,7 @@ export class SolanaPaymentService {
   ): Promise<PublicKey> {
     // Get merchant's associated token account
     const { getAssociatedTokenAddress } = await import('@solana/spl-token');
-    const USDC_MINT = new PublicKey(process.env.USDC_MINT);
+    const USDC_MINT = new PublicKey(USDC_MINT);
 
     return getAssociatedTokenAddress(USDC_MINT, merchantPubkey);
   }
