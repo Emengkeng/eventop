@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { MMKV } from 'react-native-mmkv';
-import { PublicKey } from '@solana/web3.js';
 
 const storage = new MMKV();
 
@@ -9,6 +8,9 @@ interface WalletState {
   authToken: string | null;
   isConnected: boolean;
   subscriptionWalletPda: string | null;
+  userId: string | null; // Privy user ID
+  email: string | null;
+  loginMethod: 'email' | 'oauth' | 'wallet' | null;
   balance: {
     total: number;
     committed: number;
@@ -16,10 +18,11 @@ interface WalletState {
     yieldEnabled: boolean;
   };
   
-  // Actions
-  setWallet: (publicKey: string, authToken: string) => void;
+  setWallet: (publicKey: string, authToken: string, userId?: string) => void;
+  setUserInfo: (info: { email?: string; loginMethod?: 'email' | 'oauth' | 'wallet' }) => void;
   setSubscriptionWallet: (pda: string) => void;
   updateBalance: (balance: Partial<WalletState['balance']>) => void;
+  updateAuthToken: (token: string) => void; // For token refresh
   disconnect: () => void;
   hydrate: () => void;
 }
@@ -29,6 +32,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   authToken: null,
   isConnected: false,
   subscriptionWalletPda: null,
+  userId: null,
+  email: null,
+  loginMethod: null,
   balance: {
     total: 0,
     committed: 0,
@@ -36,10 +42,31 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     yieldEnabled: false,
   },
 
-  setWallet: (publicKey, authToken) => {
+  setWallet: (publicKey, authToken, userId) => {
     storage.set('wallet.publicKey', publicKey);
     storage.set('wallet.authToken', authToken);
-    set({ publicKey, authToken, isConnected: true });
+    if (userId) {
+      storage.set('wallet.userId', userId);
+    }
+    set({ 
+      publicKey, 
+      authToken, 
+      userId: userId || null,
+      isConnected: true 
+    });
+  },
+
+  setUserInfo: (info) => {
+    if (info.email) {
+      storage.set('wallet.email', info.email);
+    }
+    if (info.loginMethod) {
+      storage.set('wallet.loginMethod', info.loginMethod);
+    }
+    set({ 
+      email: info.email || get().email,
+      loginMethod: info.loginMethod || get().loginMethod,
+    });
   },
 
   setSubscriptionWallet: (pda) => {
@@ -53,15 +80,27 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     }));
   },
 
+  updateAuthToken: (token) => {
+    storage.set('wallet.authToken', token);
+    set({ authToken: token });
+  },
+
   disconnect: () => {
     storage.delete('wallet.publicKey');
     storage.delete('wallet.authToken');
     storage.delete('wallet.subscriptionPda');
+    storage.delete('wallet.userId');
+    storage.delete('wallet.email');
+    storage.delete('wallet.loginMethod');
+    
     set({
       publicKey: null,
       authToken: null,
       isConnected: false,
       subscriptionWalletPda: null,
+      userId: null,
+      email: null,
+      loginMethod: null,
       balance: {
         total: 0,
         committed: 0,
@@ -75,6 +114,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     const publicKey = storage.getString('wallet.publicKey');
     const authToken = storage.getString('wallet.authToken');
     const subscriptionPda = storage.getString('wallet.subscriptionPda');
+    const userId = storage.getString('wallet.userId');
+    const email = storage.getString('wallet.email');
+    const loginMethod = storage.getString('wallet.loginMethod') as 'email' | 'oauth' | 'wallet' | null;
 
     if (publicKey && authToken) {
       set({
@@ -82,6 +124,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
         authToken,
         isConnected: true,
         subscriptionWalletPda: subscriptionPda || null,
+        userId: userId || null,
+        email: email || null,
+        loginMethod: loginMethod || null,
       });
     }
   },

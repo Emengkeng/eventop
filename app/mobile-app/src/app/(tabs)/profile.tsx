@@ -3,48 +3,51 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
-  User,
-  Wallet,
+  User as UserIcon,
+  Mail,
   Settings,
   FileText,
   HelpCircle,
   LogOut,
   ChevronRight,
-  Copy,
 } from 'lucide-react-native';
-import * as Clipboard from 'expo-clipboard';
+import { usePrivy } from '@privy-io/expo';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { radius } from '../../theme/radius';
 import { spacing } from '../../theme/spacing';
-import { Card } from '../..//components/ui/Card';
+import { Card } from '../../components/ui/Card';
 import { useWalletStore } from '../../store/walletStore';
-import { solanaService } from '../../services/solana';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { publicKey, disconnect } = useWalletStore();
+  const { user, logout } = usePrivy();
+  const { disconnect } = useWalletStore();
 
-  const handleCopyAddress = async () => {
-    if (publicKey) {
-      await Clipboard.setStringAsync(publicKey);
-      Alert.alert('Copied', 'Wallet address copied to clipboard');
-    }
-  };
+  // Get user's email or OAuth info
+  const userEmail = user?.email?.address;
+  const userLinkedAccounts = user?.linked_accounts || [];
+  const googleAccount = userLinkedAccounts.find((acc) => acc.type === 'google_oauth');
+  const twitterAccount = userLinkedAccounts.find((acc) => acc.type === 'twitter_oauth');
 
-  const handleDisconnect = () => {
+  const handleLogout = () => {
     Alert.alert(
-      'Disconnect Wallet',
-      'Are you sure you want to disconnect your wallet?',
+      'Log Out',
+      'Are you sure you want to log out?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Disconnect',
+          text: 'Log Out',
           style: 'destructive',
-          onPress: () => {
-            disconnect();
-            solanaService.disconnect();
-            router.replace('/auth/wallet-connect');
+          onPress: async () => {
+            try {
+              await logout();
+              disconnect();
+              router.replace('/auth/login');
+            } catch (error) {
+              console.error('Logout error:', error);
+              Alert.alert('Error', 'Failed to log out');
+            }
           },
         },
       ]
@@ -69,24 +72,41 @@ export default function ProfileScreen() {
         {/* Header */}
         <Text style={styles.title}>Profile</Text>
 
-        {/* Wallet Card */}
-        <Card style={styles.walletCard}>
-          <View style={styles.walletIcon}>
-            <Wallet size={32} color={colors.primary} />
+        {/* User Info Card */}
+        <Card style={styles.userCard}>
+          <View style={styles.userIcon}>
+            <UserIcon size={32} color={colors.primary} />
           </View>
-          <View style={styles.walletInfo}>
-            <Text style={styles.walletLabel}>Connected Wallet</Text>
-            <Text style={styles.walletAddress}>
-              {publicKey ? `${publicKey.slice(0, 8)}...${publicKey.slice(-8)}` : 'Not connected'}
+          <View style={styles.userInfo}>
+            <Text style={styles.userName}>
+              {googleAccount?.name || twitterAccount?.username || 'User'}
             </Text>
+            {userEmail && (
+              <View style={styles.emailRow}>
+                <Mail size={14} color={colors.mutedForeground} />
+                <Text style={styles.userEmail}>{userEmail}</Text>
+              </View>
+            )}
+            {googleAccount && (
+              <Text style={styles.userAuth}>Connected via Google</Text>
+            )}
+            {twitterAccount && (
+              <Text style={styles.userAuth}>Connected via Twitter</Text>
+            )}
           </View>
-          <TouchableOpacity
-            style={styles.copyButton}
-            onPress={handleCopyAddress}
-          >
-            <Copy size={20} color={colors.foreground} />
-          </TouchableOpacity>
         </Card>
+
+        {/* User ID */}
+        {user?.id && (
+          <Card>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>User ID</Text>
+              <Text style={styles.infoValue} numberOfLines={1}>
+                {user.id}
+              </Text>
+            </View>
+          </Card>
+        )}
 
         {/* Account Section */}
         <View style={styles.section}>
@@ -98,9 +118,9 @@ export default function ProfileScreen() {
               onPress={() => Alert.alert('Coming Soon', 'Settings screen is under development')}
             />
             <MenuItem
-              icon={User}
-              title="Edit Profile"
-              onPress={() => Alert.alert('Coming Soon', 'Profile editing is under development')}
+              icon={UserIcon}
+              title="Linked Accounts"
+              onPress={() => Alert.alert('Coming Soon', 'Account management is under development')}
             />
           </Card>
         </View>
@@ -122,12 +142,12 @@ export default function ProfileScreen() {
           </Card>
         </View>
 
-        {/* Disconnect */}
-        <Card noPadding style={styles.disconnectCard}>
+        {/* Logout */}
+        <Card noPadding style={styles.logoutCard}>
           <MenuItem
             icon={LogOut}
-            title="Disconnect Wallet"
-            onPress={handleDisconnect}
+            title="Log Out"
+            onPress={handleLogout}
             danger
           />
         </Card>
@@ -152,39 +172,51 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.foreground,
   },
-  walletCard: {
+  userCard: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.lg,
     gap: spacing.md,
   },
-  walletIcon: {
+  userIcon: {
     width: 56,
     height: 56,
-    borderRadius: radius.lg,
+    borderRadius: radius.full,
     backgroundColor: colors.secondary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  walletInfo: {
+  userInfo: {
     flex: 1,
+    gap: spacing.xs,
   },
-  walletLabel: {
+  userName: {
+    ...typography.h4,
+    color: colors.foreground,
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  userEmail: {
     ...typography.small,
     color: colors.mutedForeground,
   },
-  walletAddress: {
+  userAuth: {
+    ...typography.caption,
+    color: colors.mutedForeground,
+  },
+  infoRow: {
+    gap: spacing.xs,
+  },
+  infoLabel: {
+    ...typography.small,
+    color: colors.mutedForeground,
+  },
+  infoValue: {
     ...typography.bodyMedium,
     color: colors.foreground,
-    marginTop: spacing.xs,
-  },
-  copyButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.secondary,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   section: {
     gap: spacing.sm,
@@ -215,7 +247,7 @@ const styles = StyleSheet.create({
   menuItemTextDanger: {
     color: colors.destructive,
   },
-  disconnectCard: {
+  logoutCard: {
     marginTop: spacing.md,
   },
   version: {

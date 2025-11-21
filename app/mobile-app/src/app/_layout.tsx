@@ -3,7 +3,9 @@ import { Stack } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
+import { PrivyProvider } from '@privy-io/expo';
 import { useWalletStore } from '../store/walletStore';
+import { PRIVY_CONFIG } from '../config/privy';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -14,28 +16,38 @@ const queryClient = new QueryClient({
   },
 });
 
-export default function RootLayout() {
+function RootNavigator() {
   const hydrate = useWalletStore((state) => state.hydrate);
 
   React.useEffect(() => {
-    // Hydrate wallet state from storage
     hydrate();
   }, []);
 
   return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="auth/login" />
+      <Stack.Screen name="subscriptions/browse" />
+      <Stack.Screen name="subscriptions/[id]" />
+      <Stack.Screen name="wallet/deposit" />
+      <Stack.Screen name="wallet/withdraw" />
+      <Stack.Screen name="wallet/yield" />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <QueryClientProvider client={queryClient}>
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="auth/wallet-connect" />
-          <Stack.Screen name="subscriptions/browse" />
-          <Stack.Screen name="subscriptions/[id]" />
-          <Stack.Screen name="wallet/deposit" />
-          <Stack.Screen name="wallet/withdraw" />
-          <Stack.Screen name="wallet/yield" />
-        </Stack>
-      </QueryClientProvider>
+      <PrivyProvider
+        appId={PRIVY_CONFIG.appId}
+        clientId={PRIVY_CONFIG.clientId}
+      >
+        <QueryClientProvider client={queryClient}>
+          <StatusBar style="dark" />
+          <RootNavigator />
+        </QueryClientProvider>
+      </PrivyProvider>
     </GestureHandlerRootView>
   );
 }

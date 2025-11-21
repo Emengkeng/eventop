@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useWalletStore } from '../store/walletStore';
 
 const API_URL = __DEV__ 
   ? 'http://localhost:3001' 
@@ -11,6 +12,34 @@ export const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// Add auth token to all requests
+api.interceptors.request.use(
+  (config) => {
+    const authToken = useWalletStore.getState().authToken;
+    if (authToken) {
+      config.headers.Authorization = `Bearer ${authToken}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 errors (token expired)
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401) {
+      // Token expired - need to refresh or logout
+      const { disconnect } = useWalletStore.getState();
+      disconnect();
+      // Optionally redirect to login
+    }
+    return Promise.reject(error);
+  }
+);
 
 // API Types
 export interface MerchantPlan {
@@ -65,8 +94,8 @@ export const apiService = {
   },
 
   // Subscriptions
-  getUserSubscriptions: async (walletAddress: string) => {
-    const { data } = await api.get<SubscriptionResponse[]>(`/subscriptions/user/${walletAddress}`);
+  getUserSubscriptions: async (userId: string) => {
+    const { data } = await api.get<SubscriptionResponse[]>(`/subscriptions/user/${userId}`);
     return data;
   },
 
@@ -75,8 +104,8 @@ export const apiService = {
     return data;
   },
 
-  getUpcomingPayments: async (walletAddress: string) => {
-    const { data } = await api.get(`/subscriptions/user/${walletAddress}/upcoming`);
+  getUpcomingPayments: async (userId: string) => {
+    const { data } = await api.get(`/subscriptions/user/${userId}/upcoming`);
     return data;
   },
 
@@ -86,8 +115,8 @@ export const apiService = {
     return data;
   },
 
-  getUserStats: async (walletAddress: string) => {
-    const { data } = await api.get(`/subscriptions/user/${walletAddress}/stats`);
+  getUserStats: async (userId: string) => {
+    const { data } = await api.get(`/subscriptions/user/${userId}/stats`);
     return data;
   },
 };
