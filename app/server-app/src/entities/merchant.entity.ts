@@ -1,4 +1,10 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { MerchantPlan } from './merchant-plan.entity';
 
 @Entity('merchants')
@@ -24,6 +30,6 @@ export class Merchant {
   @CreateDateColumn()
   createdAt: Date;
 
-  @OneToMany(() => MerchantPlan, plan => plan.merchant)
+  @OneToMany(() => MerchantPlan, (plan) => plan.merchant)
   plans: MerchantPlan[];
 }

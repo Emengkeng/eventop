@@ -1,4 +1,11 @@
-import { Entity, Column, PrimaryColumn, ManyToOne, JoinColumn, CreateDateColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
+} from 'typeorm';
 import { Merchant } from './merchant.entity';
 
 @Entity('merchant_plans')
@@ -45,7 +52,7 @@ export class MerchantPlan {
   @CreateDateColumn()
   createdAt: Date;
 
-  @ManyToOne(() => Merchant, merchant => merchant.plans)
+  @ManyToOne(() => Merchant, (merchant) => merchant.plans)
   @JoinColumn({ name: 'merchantWallet', referencedColumnName: 'walletAddress' })
   merchant: Merchant;
 }
