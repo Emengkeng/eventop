@@ -4,7 +4,7 @@
     "slug": "even-top",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon.jpg",
     "scheme": "eventop",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
