@@ -6639,7 +6639,7 @@ base-x@^5.0.0:
   resolved "https://registry.yarnpkg.com/base-x/-/base-x-5.0.1.tgz#16bf35254be1df8aca15e36b7c1dda74b2aa6b03"
   integrity sha512-M7uio8Zt++eg3jPj+rHMfCC+IuygQHHCOU+IYsVtik6FWjuYpVt/+MRKcgsAMHh8mMFAwnB+Bs+mTrFiXjMzKg==
 
-base64-js@^1.2.3, base64-js@^1.3.1, base64-js@^1.5.1:
+base64-js@^1.2.3, base64-js@^1.3.0, base64-js@^1.3.1, base64-js@^1.5.1:
   version "1.5.1"
   resolved "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz"
   integrity sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==
@@ -8453,6 +8453,16 @@ expect@30.2.0, expect@^30.0.0:
     jest-mock "30.2.0"
     jest-util "30.2.0"
 
+expo-apple-authentication@^8.0.7:
+  version "8.0.7"
+  resolved "https://registry.yarnpkg.com/expo-apple-authentication/-/expo-apple-authentication-8.0.7.tgz#8918f66229ae003177ca5048b9edc97f9f780db1"
+  integrity sha512-KHLKecxwlPm42W/JYEefcFcXu5BW88wlgKSoikOFwRoWpzzryJxsNacMJRqrzAP3lFecPAK+ATgyJYvFkp10kw==
+
+expo-application@^7.0.7:
+  version "7.0.7"
+  resolved "https://registry.yarnpkg.com/expo-application/-/expo-application-7.0.7.tgz#8b2802650381042baa3b74297cdeb5f9628b7c6c"
+  integrity sha512-Jt1/qqnoDUbZ+bK91+dHaZ1vrPDtRBOltRa681EeedkisqguuEeUx4UHqwVyDK2oHWsK6lO3ojetoA4h8OmNcg==
+
 expo-asset@~12.0.10:
   version "12.0.10"
   resolved "https://registry.npmjs.org/expo-asset/-/expo-asset-12.0.10.tgz"
@@ -8473,6 +8483,13 @@ expo-constants@~18.0.10:
   dependencies:
     "@expo/config" "~12.0.10"
     "@expo/env" "~2.0.7"
+
+expo-crypto@^15.0.7:
+  version "15.0.7"
+  resolved "https://registry.yarnpkg.com/expo-crypto/-/expo-crypto-15.0.7.tgz#0d06a621ddbcfdcfbcb9961462ee227b52a4f73b"
+  integrity sha512-FUo41TwwGT2e5rA45PsjezI868Ch3M6wbCZsmqTWdF/hr+HyPcrp1L//dsh/hsrsyrQdpY/U96Lu71/wXePJeg==
+  dependencies:
+    base64-js "^1.3.0"
 
 expo-file-system@~19.0.18:
   version "19.0.18"
@@ -8560,6 +8577,11 @@ expo-router@~6.0.15:
     shallowequal "^1.1.0"
     use-latest-callback "^0.2.1"
     vaul "^1.1.2"
+
+expo-secure-store@^15.0.7:
+  version "15.0.7"
+  resolved "https://registry.yarnpkg.com/expo-secure-store/-/expo-secure-store-15.0.7.tgz#f74f928029889b8a32c0eafc2a214abee1e8b71e"
+  integrity sha512-9q7+G1Zxr5P6J5NRIlm86KulvmYwc6UnQlYPjQLDu1drDnerz6AT6l884dPu29HgtDTn4rR0heYeeGFhMKM7/Q==
 
 expo-server@^1.0.4:
   version "1.0.4"
@@ -9480,7 +9502,7 @@ internal-slot@^1.1.0:
     hasown "^2.0.2"
     side-channel "^1.1.0"
 
-invariant@^2.2.4:
+invariant@2.2.4, invariant@^2.2.4:
   version "2.2.4"
   resolved "https://registry.npmjs.org/invariant/-/invariant-2.2.4.tgz"
   integrity sha512-phJfQVBuaJM5raOpJjSfkiD6BpbCE4Ns//LaXl6wGYtUBY83nWS6Rf9tXm2e8VaK60JEjYldbPif/A2B1C2gNA==
@@ -12461,6 +12483,14 @@ react-native-web@~0.21.0:
     nullthrows "^1.1.1"
     postcss-value-parser "^4.2.0"
     styleq "^0.1.3"
+
+react-native-webview@^13.16.0:
+  version "13.16.0"
+  resolved "https://registry.yarnpkg.com/react-native-webview/-/react-native-webview-13.16.0.tgz#c995148f944a7eaf12389f0e6d5c6f5e6a775686"
+  integrity sha512-Nh13xKZWW35C0dbOskD7OX01nQQavOzHbCw9XoZmar4eXCo7AvrYJ0jlUfRVVIJzqINxHlpECYLdmAdFsl9xDA==
+  dependencies:
+    escape-string-regexp "^4.0.0"
+    invariant "2.2.4"
 
 react-native-worklets@0.5.1:
   version "0.5.1"
