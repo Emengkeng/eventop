@@ -480,11 +480,17 @@ pub struct CreateSubscriptionWallet<'info> {
     )]
     pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
+    // Removed init constraint - this should be created separately or already exist
+    // #[account(
+    //     init,
+    //     payer = user,
+    //     token::mint = mint,
+    //     token::authority = subscription_wallet,
+    // )]
     #[account(
-        init,
-        payer = user,
-        token::mint = mint,
-        token::authority = subscription_wallet,
+        mut,
+        constraint = main_token_account.owner == subscription_wallet.key(),
+        constraint = main_token_account.mint == mint.key()
     )]
     pub main_token_account: Account<'info, TokenAccount>,
 
