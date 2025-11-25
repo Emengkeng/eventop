@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-subscription_protocol = "7sfgAWayriXLDnDvseZTNo3DvwVV7SrybvVFhjJgjkJH"
+subscription_protocol = "GPVtSfXPiy8y4SkJrMC3VFyKUmGVhMrRbAp2NhiW1Ds2"
 
 [registry]
 url = "https://api.apr.dev"

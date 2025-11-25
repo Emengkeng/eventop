@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer, Mint, CloseAccount};
 // use clockwork_sdk::state::Thread;
 
-declare_id!("7sfgAWayriXLDnDvseZTNo3DvwVV7SrybvVFhjJgjkJH");
+declare_id!("GPVtSfXPiy8y4SkJrMC3VFyKUmGVhMrRbAp2NhiW1Ds2");
 
 #[program]
 pub mod subscription_protocol {
