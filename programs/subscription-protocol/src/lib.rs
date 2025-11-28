@@ -341,31 +341,31 @@ pub mod subscription_protocol {
         subscription.total_paid = subscription.total_paid
             .checked_add(fee_to_charge)
             .ok_or(ErrorCode::MathOverflow)?;
-    subscription.payment_count = subscription.payment_count
+        subscription.payment_count = subscription.payment_count
         .checked_add(1)
         .ok_or(ErrorCode::MathOverflow)?;
     
-    wallet.total_spent = wallet.total_spent
-        .checked_add(fee_to_charge)
-        .ok_or(ErrorCode::MathOverflow)?;
+        wallet.total_spent = wallet.total_spent
+            .checked_add(fee_to_charge)
+            .ok_or(ErrorCode::MathOverflow)?;
 
-    // ============================================
-    // EVENT EMISSION (for indexer)
-    // ============================================
-    
-    emit!(PaymentExecuted {
-        subscription_pda: subscription.key(),
-        wallet_pda: wallet.key(),
-        user: subscription.user,
-        merchant: subscription.merchant,
-        amount: fee_to_charge,
-        payment_number: subscription.payment_count,
-    });
+        // ============================================
+        // EVENT EMISSION (for indexer)
+        // ============================================
+        
+        emit!(PaymentExecuted {
+            subscription_pda: subscription.key(),
+            wallet_pda: wallet.key(),
+            user: subscription.user,
+            merchant: subscription.merchant,
+            amount: fee_to_charge,
+            payment_number: subscription.payment_count,
+        });
 
-    msg!("✅ Payment #{} executed: {} tokens", subscription.payment_count, fee_to_charge);
+        msg!("✅ Payment #{} executed: {} tokens", subscription.payment_count, fee_to_charge);
 
-    Ok(())
-}
+        Ok(())
+    }
 
     /// Cancel subscription (no refund needed, funds stay in wallet)
     pub fn cancel_subscription_wallet(ctx: Context<CancelSubscriptionWallet>) -> Result<()> {
@@ -677,6 +677,7 @@ pub struct ExecutePaymentFromWallet<'info> {
             subscription_state.mint.as_ref()
         ],
         bump = subscription_state.bump,
+        constraint = subscription_state.is_active @ ErrorCode::SubscriptionInactive,
     )]
     pub subscription_state: Account<'info, SubscriptionState>,
 
@@ -694,7 +695,8 @@ pub struct ExecutePaymentFromWallet<'info> {
 
     #[account(
         constraint = merchant_plan.key() == subscription_state.merchant_plan @ ErrorCode::InvalidMerchantPlan,
-        constraint = merchant_plan.is_active @ ErrorCode::PlanInactive
+        constraint = merchant_plan.is_active @ ErrorCode::PlanInactive,
+        constraint = merchant_plan.merchant == subscription_state.merchant @ ErrorCode::MerchantMismatch,
     )]
     pub merchant_plan: Account<'info, MerchantPlan>,
 
@@ -978,4 +980,7 @@ pub enum ErrorCode {
     
     #[msg("Math operation overflow")]
     MathOverflow,
+
+    #[msg("Merchant mismatch: subscription merchant does not match merchant plan")]
+    MerchantMismatch,
 }
