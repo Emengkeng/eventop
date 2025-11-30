@@ -1,10 +1,14 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { PrivyAuthGuard } from '../auth/privy-auth.guard';
+import { RateLimitType } from '../common/rate-limit/rate-limit.config';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
 // import { User } from '../auth/user.decorator';
 
 @Controller('subscriptions')
-@UseGuards(PrivyAuthGuard)
+@UseGuards(PrivyAuthGuard, RateLimitGuard)
+@RateLimit(RateLimitType.GENERAL)
 export class SubscriptionController {
   constructor(private subscriptionService: SubscriptionService) {}
 

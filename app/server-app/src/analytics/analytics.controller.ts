@@ -1,9 +1,13 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
 import { PrivyAuthGuard } from '../auth/privy-auth.guard';
+import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { RateLimitType } from '../common/rate-limit/rate-limit.config';
 
 @Controller('analytics')
-@UseGuards(PrivyAuthGuard)
+@UseGuards(PrivyAuthGuard, RateLimitGuard)
+@RateLimit(RateLimitType.GENERAL)
 export class AnalyticsController {
   constructor(private analyticsService: AnalyticsService) {}
 

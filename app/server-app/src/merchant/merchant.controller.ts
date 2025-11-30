@@ -10,9 +10,13 @@ import {
 } from '@nestjs/common';
 import { MerchantService } from './merchant.service';
 import { PrivyAuthGuard } from '../auth/privy-auth.guard';
+import { RateLimitType } from '../common/rate-limit/rate-limit.config';
+import { RateLimit } from '../common/rate-limit/rate-limit.decorator';
+import { RateLimitGuard } from '../common/rate-limit/rate-limit.guard';
 
 @Controller('merchants')
-@UseGuards(PrivyAuthGuard)
+@UseGuards(PrivyAuthGuard, RateLimitGuard)
+@RateLimit(RateLimitType.GENERAL)
 export class MerchantController {
   constructor(private merchantService: MerchantService) {}
 
