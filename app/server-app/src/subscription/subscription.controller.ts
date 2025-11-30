@@ -1,7 +1,10 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
+import { PrivyAuthGuard } from '../auth/privy-auth.guard';
+// import { User } from '../auth/user.decorator';
 
 @Controller('subscriptions')
+@UseGuards(PrivyAuthGuard)
 export class SubscriptionController {
   constructor(private subscriptionService: SubscriptionService) {}
 

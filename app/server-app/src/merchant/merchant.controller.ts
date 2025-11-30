@@ -1,7 +1,18 @@
-import { Controller, Get, Post, Put, Body, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { MerchantService } from './merchant.service';
+import { PrivyAuthGuard } from '../auth/privy-auth.guard';
 
 @Controller('merchants')
+@UseGuards(PrivyAuthGuard)
 export class MerchantController {
   constructor(private merchantService: MerchantService) {}
 
