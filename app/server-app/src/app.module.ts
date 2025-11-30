@@ -10,6 +10,8 @@ import { SubscriptionModule } from './subscription/subscription.module';
 import { MerchantModule } from './merchant/merchant.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { AuthModule } from './auth/auth.module';
+import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 import {
   DB_PORT,
   DB_NAME,
@@ -41,6 +43,8 @@ import {
     MerchantModule,
     WebhookModule,
     AnalyticsModule,
+    AuthModule,
+    RateLimitModule,
   ],
 })
 export class AppModule {}
