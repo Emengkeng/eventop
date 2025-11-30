@@ -10,20 +10,15 @@ import { MerchantPlan } from '../entities/merchant-plan.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { SubscriptionWallet } from '../entities/subscription-wallet.entity';
 import { Transaction } from '../entities/transaction.entity';
+import { IndexerState } from '../entities/indexer-state.entity';
 import { ProgramEvent, TransactionRecordData, TransactionType } from '../types';
-
-// // Add a new entity to track indexer state
-// interface IndexerState {
-//   lastProcessedSlot: number;
-//   lastSyncTime: Date;
-// }
 
 @Injectable()
 export class IndexerService implements OnModuleInit {
   private readonly logger = new Logger(IndexerService.name);
   private isIndexing = false;
   private lastProcessedSlot = 0;
-  private indexerStateKey = 'indexer_state';
+  private readonly INDEXER_STATE_KEY = 'main_indexer';
 
   constructor(
     @InjectRepository(MerchantPlan)
@@ -37,6 +32,9 @@ export class IndexerService implements OnModuleInit {
 
     @InjectRepository(Transaction)
     private transactionRepo: Repository<Transaction>,
+
+    @InjectRepository(IndexerState)
+    private indexerStateRepo: Repository<IndexerState>,
 
     private solanaService: SolanaService,
     private eventParser: EventParserService,
@@ -119,7 +117,7 @@ export class IndexerService implements OnModuleInit {
   }
 
   /**
-   * NEW: Backfill transactions that occurred while server was down
+   * Backfill transactions that occurred while server was down
    */
   private async backfillMissedTransactions(): Promise<void> {
     const connection = this.solanaService.getConnection();
@@ -238,7 +236,9 @@ export class IndexerService implements OnModuleInit {
     }
   }
 
-  // ... rest of your event handlers remain the same ...
+  /**
+   * Event Handlers
+   */
 
   private async handleSubscriptionWalletCreated(
     data: ProgramEvent,
@@ -513,6 +513,9 @@ export class IndexerService implements OnModuleInit {
       await this.syncSubscriptionWallets();
       await this.syncSubscriptions();
 
+      // Update last sync time
+      await this.updateLastSyncTime();
+
       this.logger.log('✅ Account sync completed');
     } catch (error) {
       this.logger.error('Error during sync:', error);
@@ -600,7 +603,7 @@ export class IndexerService implements OnModuleInit {
   }
 
   /**
-   * Load last processed slot from database or use current slot
+   * Load last processed slot from database
    */
   private async loadLastProcessedSlot(): Promise<void> {
     const connection = this.solanaService.getConnection();
@@ -609,17 +612,49 @@ export class IndexerService implements OnModuleInit {
       throw new Error('Connection is not initialized');
     }
 
-    // Try to load from database (you'd need to store this)
-    // For now, we'll just get the current slot
-    this.lastProcessedSlot = await connection.getSlot('confirmed');
-    this.logger.log(`Starting from slot: ${this.lastProcessedSlot}`);
+    // Try to load from database
+    const state = await this.indexerStateRepo.findOne({
+      where: { key: this.INDEXER_STATE_KEY },
+    });
+
+    if (state) {
+      this.lastProcessedSlot = Number(state.lastProcessedSlot);
+      this.logger.log(
+        `📍 Loaded last processed slot from DB: ${this.lastProcessedSlot}`,
+      );
+    } else {
+      // First time running - get current slot
+      this.lastProcessedSlot = await connection.getSlot('confirmed');
+      this.logger.log(
+        `📍 First run - starting from current slot: ${this.lastProcessedSlot}`,
+      );
+
+      // Save initial state
+      await this.saveLastProcessedSlot();
+    }
   }
 
   /**
-   * Save last processed slot (you'd want to persist this to DB)
+   * Save last processed slot to database
    */
   private async saveLastProcessedSlot(): Promise<void> {
-    // TODO: Save to database
-    // Example: await this.configRepo.upsert({ key: 'last_slot', value: this.lastProcessedSlot })
+    await this.indexerStateRepo.upsert(
+      {
+        key: this.INDEXER_STATE_KEY,
+        lastProcessedSlot: this.lastProcessedSlot,
+        lastSyncTime: new Date(),
+      },
+      ['key'],
+    );
+  }
+
+  /**
+   * Update last sync time
+   */
+  private async updateLastSyncTime(): Promise<void> {
+    await this.indexerStateRepo.update(
+      { key: this.INDEXER_STATE_KEY },
+      { lastSyncTime: new Date() },
+    );
   }
 }

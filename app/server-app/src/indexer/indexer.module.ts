@@ -9,6 +9,7 @@ import { MerchantPlan } from '../entities/merchant-plan.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { SubscriptionWallet } from '../entities/subscription-wallet.entity';
 import { Transaction } from '../entities/transaction.entity';
+import { IndexerState } from '../entities/indexer-state.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { Transaction } from '../entities/transaction.entity';
       Subscription,
       SubscriptionWallet,
       Transaction,
+      IndexerState,
     ]),
   ],
   providers: [IndexerService, EventParserService, SolanaService],
