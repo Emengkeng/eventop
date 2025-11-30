@@ -4,7 +4,15 @@ import { ensureEnv } from './validateEnv';
 process.env.NODE_ENV =
   process.env.NODE_ENV === undefined ? 'production' : process.env.NODE_ENV;
 
-config({ path: `.env.${process.env.NODE_ENV || 'development'}.local` });
+// Load environment variables in order of priority:
+// 1. .env.{NODE_ENV}.local (highest priority)
+// 2. .env.{NODE_ENV}
+// 3. .env.local
+// 4. .env (lowest priority)
+config({ path: `.env.${process.env.NODE_ENV}.local` });
+config({ path: `.env.${process.env.NODE_ENV}` });
+config({ path: '.env.local' });
+config({ path: '.env' });
 
 // Validate required environment variables
 ensureEnv([

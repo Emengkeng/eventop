@@ -1,8 +1,9 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import NodeWallet from '@coral-xyz/anchor/dist/cjs/nodewallet';
 import { Keypair } from '@solana/web3.js';
+import bs58 from 'bs58';
 import {
   SubscriptionWallet,
   ACCOUNT_DISCRIMINATORS,
@@ -13,16 +14,18 @@ import {
 
 @Injectable()
 export class SolanaService implements OnModuleInit {
-  private connection: Connection;
+  private readonly logger = new Logger(SolanaService.name);
+  private connection!: Connection;
   private program: Program | null = null;
-  private programId: PublicKey;
-  private provider: AnchorProvider;
+  private programId!: PublicKey;
+  private provider!: AnchorProvider;
+  private isInitialized = false;
 
-  async onModuleInit() {
+  constructor() {
     const rpcUrl =
       process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
     const programIdStr =
-      process.env.PROGRAM_ID || '7sfgAWayriXLDnDvseZTNo3DvwVV7SrybvVFhjJgjkJH';
+      process.env.PROGRAM_ID || 'GPVtSfXPiy8y4SkJrMC3VFyKUmGVhMrRbAp2NhiW1Ds2';
 
     this.connection = new Connection(rpcUrl, {
       commitment: 'confirmed',
@@ -31,7 +34,6 @@ export class SolanaService implements OnModuleInit {
 
     this.programId = new PublicKey(programIdStr);
 
-    // Create a dummy wallet for read-only operations
     const dummyKeypair = Keypair.generate();
     const wallet = new NodeWallet(dummyKeypair);
 
@@ -39,36 +41,42 @@ export class SolanaService implements OnModuleInit {
       commitment: 'confirmed',
     });
 
-    console.log('✅ Solana connection established');
-    console.log('📍 RPC URL:', rpcUrl);
-    console.log('📍 Program ID:', this.programId.toString());
-
-    // Load the program IDL if available
-    await this.loadProgram();
+    this.logger.log('✅ Solana connection established');
+    this.logger.log(`📍 RPC URL: ${rpcUrl}`);
+    this.logger.log(`📍 Program ID: ${this.programId.toString()}`);
   }
 
-  /**
-   * Load the Anchor program with IDL
-   */
+  async onModuleInit() {
+    try {
+      await this.loadProgram();
+      this.isInitialized = true;
+      this.logger.log('✅ SolanaService fully initialized');
+    } catch (error) {
+      this.logger.error('❌ Failed to initialize SolanaService:', error);
+    }
+  }
+
   private async loadProgram(): Promise<void> {
     try {
-      // You need to import your IDL JSON file
-      // const idl = await Program.fetchIdl(this.programId, this.provider);
-      // if (idl) {
-      //   this.program = new Program(idl, this.programId, this.provider);
-      //   console.log('✅ Program loaded with IDL');
-      // }
-
-      // For now, placeholder
-      console.log(
-        '⚠️  Program IDL not loaded. Add your IDL to enable typed accounts.',
-      );
+      const idl = await Program.fetchIdl(this.programId, this.provider);
+      if (idl) {
+        this.program = new Program(idl, this.provider);
+        this.logger.log('✅ Program loaded with IDL');
+      } else {
+        this.logger.warn(
+          '⚠️  Program IDL not loaded. Add your IDL to enable typed accounts.',
+        );
+      }
     } catch (error) {
-      console.error('Error loading program IDL:', error);
+      this.logger.error('Error loading program IDL:', error);
+      throw error;
     }
   }
 
   getConnection(): Connection {
+    if (!this.connection) {
+      throw new Error('Connection not initialized');
+    }
     return this.connection;
   }
 
@@ -84,13 +92,28 @@ export class SolanaService implements OnModuleInit {
     return this.provider;
   }
 
+  isReady(): boolean {
+    return this.isInitialized && this.program !== null;
+  }
+
+  async waitUntilReady(maxAttempts = 10): Promise<void> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (this.isReady()) {
+        this.logger.log('✅ SolanaService is ready');
+        return;
+      }
+      this.logger.warn(
+        `⏳ Waiting for SolanaService... (${attempt}/${maxAttempts})`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw new Error('SolanaService did not initialize in time');
+  }
+
   // ============================================
   // TYPED ACCOUNT FETCHERS
   // ============================================
 
-  /**
-   * Fetch all Subscription Wallet accounts
-   */
   async getAllSubscriptionWallets(): Promise<
     Array<{ pubkey: PublicKey; account: SubscriptionWallet }>
   > {
@@ -99,7 +122,7 @@ export class SolanaService implements OnModuleInit {
         {
           memcmp: {
             offset: 0,
-            bytes: ACCOUNT_DISCRIMINATORS.SubscriptionWallet.toString('base64'),
+            bytes: bs58.encode(ACCOUNT_DISCRIMINATORS.SubscriptionWallet),
           },
         },
       ],
@@ -111,9 +134,6 @@ export class SolanaService implements OnModuleInit {
     }));
   }
 
-  /**
-   * Fetch all Merchant Plan accounts
-   */
   async getAllMerchantPlans(): Promise<
     Array<{ pubkey: PublicKey; account: MerchantPlan }>
   > {
@@ -122,7 +142,7 @@ export class SolanaService implements OnModuleInit {
         {
           memcmp: {
             offset: 0,
-            bytes: ACCOUNT_DISCRIMINATORS.MerchantPlan.toString('base64'),
+            bytes: bs58.encode(ACCOUNT_DISCRIMINATORS.MerchantPlan),
           },
         },
       ],
@@ -134,9 +154,6 @@ export class SolanaService implements OnModuleInit {
     }));
   }
 
-  /**
-   * Fetch all Subscription State accounts
-   */
   async getAllSubscriptions(): Promise<
     Array<{ pubkey: PublicKey; account: SubscriptionState }>
   > {
@@ -145,7 +162,7 @@ export class SolanaService implements OnModuleInit {
         {
           memcmp: {
             offset: 0,
-            bytes: ACCOUNT_DISCRIMINATORS.SubscriptionState.toString('base64'),
+            bytes: bs58.encode(ACCOUNT_DISCRIMINATORS.SubscriptionState),
           },
         },
       ],
@@ -157,9 +174,6 @@ export class SolanaService implements OnModuleInit {
     }));
   }
 
-  /**
-   * Fetch subscriptions by user
-   */
   async getSubscriptionsByUser(
     userPubkey: PublicKey,
   ): Promise<Array<{ pubkey: PublicKey; account: SubscriptionState }>> {
@@ -168,12 +182,12 @@ export class SolanaService implements OnModuleInit {
         {
           memcmp: {
             offset: 0,
-            bytes: ACCOUNT_DISCRIMINATORS.SubscriptionState.toString('base64'),
+            bytes: bs58.encode(ACCOUNT_DISCRIMINATORS.SubscriptionState),
           },
         },
         {
           memcmp: {
-            offset: 8, // After discriminator
+            offset: 8,
             bytes: userPubkey.toBase58(),
           },
         },
@@ -186,9 +200,6 @@ export class SolanaService implements OnModuleInit {
     }));
   }
 
-  /**
-   * Fetch merchant plans by merchant
-   */
   async getMerchantPlansByMerchant(
     merchantPubkey: PublicKey,
   ): Promise<Array<{ pubkey: PublicKey; account: MerchantPlan }>> {
@@ -197,7 +208,7 @@ export class SolanaService implements OnModuleInit {
         {
           memcmp: {
             offset: 0,
-            bytes: ACCOUNT_DISCRIMINATORS.MerchantPlan.toString('base64'),
+            bytes: bs58.encode(ACCOUNT_DISCRIMINATORS.MerchantPlan),
           },
         },
         {
@@ -220,7 +231,6 @@ export class SolanaService implements OnModuleInit {
   // ============================================
 
   private decodeSubscriptionWallet(data: Buffer): SubscriptionWallet {
-    // Skip 8-byte discriminator
     let offset = 8;
 
     const owner = new PublicKey(data.slice(offset, offset + 32));
@@ -235,7 +245,6 @@ export class SolanaService implements OnModuleInit {
     const yieldVault = new PublicKey(data.slice(offset, offset + 32));
     offset += 32;
 
-    // YieldStrategy enum (1 byte)
     const yieldStrategyByte = data.readUInt8(offset);
     offset += 1;
     const yieldStrategy = this.decodeYieldStrategy(yieldStrategyByte);
@@ -273,7 +282,6 @@ export class SolanaService implements OnModuleInit {
     const mint = new PublicKey(data.slice(offset, offset + 32));
     offset += 32;
 
-    // String with length prefix (4 bytes) + content
     const planIdLen = data.readUInt32LE(offset);
     offset += 4;
     const planId = data.slice(offset, offset + planIdLen).toString('utf8');

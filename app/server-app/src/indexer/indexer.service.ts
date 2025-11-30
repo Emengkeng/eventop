@@ -12,11 +12,18 @@ import { SubscriptionWallet } from '../entities/subscription-wallet.entity';
 import { Transaction } from '../entities/transaction.entity';
 import { ProgramEvent, TransactionRecordData, TransactionType } from '../types';
 
+// // Add a new entity to track indexer state
+// interface IndexerState {
+//   lastProcessedSlot: number;
+//   lastSyncTime: Date;
+// }
+
 @Injectable()
 export class IndexerService implements OnModuleInit {
   private readonly logger = new Logger(IndexerService.name);
   private isIndexing = false;
   private lastProcessedSlot = 0;
+  private indexerStateKey = 'indexer_state';
 
   constructor(
     @InjectRepository(MerchantPlan)
@@ -38,48 +45,68 @@ export class IndexerService implements OnModuleInit {
   async onModuleInit() {
     this.logger.log('🚀 Initializing Indexer...');
 
-    // Initialize event parser with program
-    const program = this.solanaService.getProgram();
-    if (program) {
+    try {
+      // Wait for SolanaService to be fully ready
+      await this.solanaService.waitUntilReady();
+      this.logger.log('✅ SolanaService is ready');
+
+      // Initialize event parser with program
+      const program = this.solanaService.getProgram();
+      if (!program) {
+        throw new Error('Program not initialized');
+      }
       this.eventParser.setProgram(program);
+
+      // Load last processed slot from DB or get current slot
+      await this.loadLastProcessedSlot();
+
+      // Backfill any missed transactions since last run
+      await this.backfillMissedTransactions();
+
+      // Initial full account sync
+      await this.syncAllAccounts();
+
+      // Start listening to program logs for real-time updates
+      this.startLogListener();
+
+      this.logger.log('✅ Indexer initialized');
+    } catch (error) {
+      this.logger.error('❌ Failed to initialize indexer:', error);
+      throw error;
     }
-
-    // Load last processed slot from DB
-    await this.loadLastProcessedSlot();
-
-    // Start listening to program logs
-    this.startLogListener();
-
-    // Initial sync
-    await this.syncAllAccounts();
-
-    this.logger.log('✅ Indexer initialized');
   }
 
   /**
    * Real-time log listener for new transactions
+   * This captures events as they happen on-chain
    */
   private startLogListener(): void {
     const connection = this.solanaService.getConnection();
     const programId = this.solanaService.getProgramId();
 
+    if (!connection || !programId) {
+      this.logger.error(
+        'Cannot start log listener: connection or programId is undefined',
+      );
+      return;
+    }
+
     connection.onLogs(
       programId,
       (logs, ctx) => {
         void (async () => {
-          this.logger.log(`📝 New logs detected at slot ${ctx.slot}`);
+          this.logger.log(`📨 New logs detected at slot ${ctx.slot}`);
 
           try {
-            // Parse events from logs using typed parser
             const events = this.eventParser.parseTransactionLogs(logs.logs);
 
-            // Process each event with proper typing
             for (const event of events) {
               await this.handleEvent(event, logs.signature, ctx.slot);
             }
 
             // Update last processed slot
             this.lastProcessedSlot = ctx.slot;
+            await this.saveLastProcessedSlot();
           } catch (error) {
             this.logger.error('Error processing logs:', error);
           }
@@ -88,7 +115,79 @@ export class IndexerService implements OnModuleInit {
       'confirmed',
     );
 
-    this.logger.log('👂 Listening for program logs...');
+    this.logger.log('👂 Listening for program logs in real-time...');
+  }
+
+  /**
+   * NEW: Backfill transactions that occurred while server was down
+   */
+  private async backfillMissedTransactions(): Promise<void> {
+    const connection = this.solanaService.getConnection();
+    const programId = this.solanaService.getProgramId();
+
+    try {
+      const currentSlot = await connection.getSlot('confirmed');
+
+      if (
+        this.lastProcessedSlot === 0 ||
+        this.lastProcessedSlot === currentSlot
+      ) {
+        this.logger.log(
+          'No backfill needed - starting fresh or already up to date',
+        );
+        return;
+      }
+
+      const slotGap = currentSlot - this.lastProcessedSlot;
+      this.logger.log(
+        `🔄 Backfilling ${slotGap} slots (${this.lastProcessedSlot} -> ${currentSlot})`,
+      );
+
+      // Get transaction signatures for the program since last processed slot
+      const signatures = await connection.getSignaturesForAddress(
+        programId,
+        {
+          limit: 1000, // Adjust based on your needs
+        },
+        'confirmed',
+      );
+
+      let backfilledCount = 0;
+
+      for (const sig of signatures) {
+        // Only process transactions after our last processed slot
+        if (sig.slot && sig.slot <= this.lastProcessedSlot) {
+          break;
+        }
+
+        try {
+          const tx = await connection.getTransaction(sig.signature, {
+            maxSupportedTransactionVersion: 0,
+          });
+
+          if (tx?.meta?.logMessages) {
+            const events = this.eventParser.parseTransactionLogs(
+              tx.meta.logMessages,
+            );
+
+            for (const event of events) {
+              await this.handleEvent(event, sig.signature, sig.slot || 0);
+            }
+
+            backfilledCount++;
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to process transaction ${sig.signature}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log(`✅ Backfilled ${backfilledCount} transactions`);
+    } catch (error) {
+      this.logger.error('Error during backfill:', error);
+    }
   }
 
   /**
@@ -135,20 +234,14 @@ export class IndexerService implements OnModuleInit {
         break;
 
       default:
-        // TypeScript will ensure this is exhaustive
-        // const _exhaustive: never = event;
         this.logger.warn(`Unhandled event type`);
     }
   }
 
-  /**
-   * Event Handlers (now with proper typing)
-   */
+  // ... rest of your event handlers remain the same ...
 
   private async handleSubscriptionWalletCreated(
     data: ProgramEvent,
-    // signature: string,
-    // slot: number,
   ): Promise<void> {
     if (data.name !== 'SubscriptionWalletCreated') return;
 
@@ -162,7 +255,6 @@ export class IndexerService implements OnModuleInit {
     });
 
     await this.walletRepo.save(wallet);
-
     this.logger.log(`✅ Subscription wallet created: ${wallet.walletPda}`);
   }
 
@@ -188,10 +280,9 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'WalletDeposit') return;
-    // Record the deposit transaction
     await this.recordTransaction({
       signature,
-      subscriptionPda: '', // No subscription involved
+      subscriptionPda: '',
       type: TransactionType.Deposit,
       amount: data.data.amount.toString(),
       fromWallet: data.data.user.toString(),
@@ -231,7 +322,7 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'SubscriptionCreated') return;
-    // Fetch the merchant plan to get fee details
+
     const merchantPlan = await this.merchantPlanRepo.findOne({
       where: { merchantWallet: data.data.merchant.toString() },
     });
@@ -253,7 +344,6 @@ export class IndexerService implements OnModuleInit {
 
     await this.subscriptionRepo.save(subscription);
 
-    // Update merchant plan subscriber count
     if (merchantPlan) {
       await this.merchantPlanRepo.increment(
         { planPda: merchantPlan.planPda },
@@ -262,14 +352,12 @@ export class IndexerService implements OnModuleInit {
       );
     }
 
-    // Update wallet subscription count
     await this.walletRepo.increment(
       { walletPda: data.data.wallet.toString() },
       'totalSubscriptions',
       1,
     );
 
-    // Record transaction
     await this.recordTransaction({
       signature,
       subscriptionPda: subscription.subscriptionPda,
@@ -296,7 +384,6 @@ export class IndexerService implements OnModuleInit {
     if (subscription) {
       const amount = data.data.amount.toString();
 
-      // Update subscription
       subscription.totalPaid = (
         BigInt(subscription.totalPaid) + BigInt(amount)
       ).toString();
@@ -305,21 +392,18 @@ export class IndexerService implements OnModuleInit {
 
       await this.subscriptionRepo.save(subscription);
 
-      // Update merchant plan revenue
       await this.merchantPlanRepo.increment(
         { planPda: subscription.merchantPlanPda },
         'totalRevenue',
         parseInt(amount),
       );
 
-      // Update wallet total spent
       await this.walletRepo.increment(
         { walletPda: subscription.subscriptionWalletPda },
         'totalSpent',
         parseInt(amount),
       );
 
-      // Record transaction
       await this.recordTransaction({
         signature,
         subscriptionPda: subscription.subscriptionPda,
@@ -352,7 +436,6 @@ export class IndexerService implements OnModuleInit {
 
       await this.subscriptionRepo.save(subscription);
 
-      // Decrement counts
       await this.merchantPlanRepo.decrement(
         { planPda: subscription.merchantPlanPda },
         'totalSubscribers',
@@ -365,7 +448,6 @@ export class IndexerService implements OnModuleInit {
         1,
       );
 
-      // Record transaction
       await this.recordTransaction({
         signature,
         subscriptionPda: subscription.subscriptionPda,
@@ -392,11 +474,10 @@ export class IndexerService implements OnModuleInit {
       `✅ Yield claimed: ${data.data.amount.toString()} from wallet ${data.data.walletPda.toString()}`,
     );
 
-    // You can optionally record this as a transaction
     await this.recordTransaction({
       signature,
       subscriptionPda: '',
-      type: TransactionType.Withdrawal, // Yield claim is a form of withdrawal
+      type: TransactionType.Withdrawal,
       amount: data.data.amount.toString(),
       fromWallet: data.data.walletPda.toString(),
       toWallet: data.data.user.toString(),
@@ -404,9 +485,6 @@ export class IndexerService implements OnModuleInit {
     });
   }
 
-  /**
-   * Record transaction in database
-   */
   private async recordTransaction(data: TransactionRecordData): Promise<void> {
     const transaction = this.transactionRepo.create({
       ...data,
@@ -418,7 +496,7 @@ export class IndexerService implements OnModuleInit {
   }
 
   /**
-   * Sync all existing accounts (run on startup or manually)
+   * Sync all existing accounts (runs hourly + on startup)
    */
   @Cron(CronExpression.EVERY_HOUR)
   async syncAllAccounts(): Promise<void> {
@@ -431,13 +509,8 @@ export class IndexerService implements OnModuleInit {
     this.logger.log('🔄 Starting account sync...');
 
     try {
-      // Sync merchant plans
       await this.syncMerchantPlans();
-
-      // Sync subscription wallets
       await this.syncSubscriptionWallets();
-
-      // Sync subscriptions
       await this.syncSubscriptions();
 
       this.logger.log('✅ Account sync completed');
@@ -465,7 +538,7 @@ export class IndexerService implements OnModuleInit {
           paymentInterval: account.paymentInterval.toString(),
           isActive: account.isActive,
           totalSubscribers: account.totalSubscribers,
-          totalRevenue: '0', // This would need to be calculated
+          totalRevenue: '0',
         },
         ['planPda'],
       );
@@ -526,10 +599,27 @@ export class IndexerService implements OnModuleInit {
     this.logger.log(`✅ Synced ${subscriptions.length} subscriptions`);
   }
 
+  /**
+   * Load last processed slot from database or use current slot
+   */
   private async loadLastProcessedSlot(): Promise<void> {
-    // Load from DB or start from current slot
     const connection = this.solanaService.getConnection();
+
+    if (!connection) {
+      throw new Error('Connection is not initialized');
+    }
+
+    // Try to load from database (you'd need to store this)
+    // For now, we'll just get the current slot
     this.lastProcessedSlot = await connection.getSlot('confirmed');
     this.logger.log(`Starting from slot: ${this.lastProcessedSlot}`);
+  }
+
+  /**
+   * Save last processed slot (you'd want to persist this to DB)
+   */
+  private async saveLastProcessedSlot(): Promise<void> {
+    // TODO: Save to database
+    // Example: await this.configRepo.upsert({ key: 'last_slot', value: this.lastProcessedSlot })
   }
 }

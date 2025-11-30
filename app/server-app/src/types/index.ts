@@ -228,17 +228,11 @@ export interface TransactionRecordData {
  * Account discriminators are the first 8 bytes of each account type
  * Computed as: sha256("account:<AccountName>")[0..8]
  *
- * Use the generate-discriminators.ts script to compute these for our program
  */
 export const ACCOUNT_DISCRIMINATORS = {
-  SubscriptionWallet: Buffer.from([
-    //TODO: Replace with actual discriminators from our program
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  ]),
-  MerchantPlan: Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
-  SubscriptionState: Buffer.from([
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  ]),
+  MerchantPlan: Buffer.from([186, 54, 183, 129, 39, 81, 74, 89]),
+  SubscriptionState: Buffer.from([35, 41, 45, 165, 253, 34, 95, 225]),
+  SubscriptionWallet: Buffer.from([255, 81, 65, 25, 250, 57, 38, 118]),
 };
 
 // ============================================
