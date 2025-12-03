@@ -1,16 +1,9 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { SolanaService } from './solana.service';
 import { EventParserService } from './event-parser.service';
-
-import { MerchantPlan } from '../entities/merchant-plan.entity';
-import { Subscription } from '../entities/subscription.entity';
-import { SubscriptionWallet } from '../entities/subscription-wallet.entity';
-import { Transaction } from '../entities/transaction.entity';
-import { IndexerState } from '../entities/indexer-state.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import { ProgramEvent, TransactionRecordData, TransactionType } from '../types';
 
 @Injectable()
@@ -21,21 +14,7 @@ export class IndexerService implements OnModuleInit {
   private readonly INDEXER_STATE_KEY = 'main_indexer';
 
   constructor(
-    @InjectRepository(MerchantPlan)
-    private merchantPlanRepo: Repository<MerchantPlan>,
-
-    @InjectRepository(Subscription)
-    private subscriptionRepo: Repository<Subscription>,
-
-    @InjectRepository(SubscriptionWallet)
-    private walletRepo: Repository<SubscriptionWallet>,
-
-    @InjectRepository(Transaction)
-    private transactionRepo: Repository<Transaction>,
-
-    @InjectRepository(IndexerState)
-    private indexerStateRepo: Repository<IndexerState>,
-
+    private prisma: PrismaService,
     private solanaService: SolanaService,
     private eventParser: EventParserService,
   ) {}
@@ -44,27 +23,18 @@ export class IndexerService implements OnModuleInit {
     this.logger.log('🚀 Initializing Indexer...');
 
     try {
-      // Wait for SolanaService to be fully ready
       await this.solanaService.waitUntilReady();
       this.logger.log('✅ SolanaService is ready');
 
-      // Initialize event parser with program
       const program = this.solanaService.getProgram();
       if (!program) {
         throw new Error('Program not initialized');
       }
       this.eventParser.setProgram(program);
 
-      // Load last processed slot from DB or get current slot
       await this.loadLastProcessedSlot();
-
-      // Backfill any missed transactions since last run
       await this.backfillMissedTransactions();
-
-      // Initial full account sync
       await this.syncAllAccounts();
-
-      // Start listening to program logs for real-time updates
       this.startLogListener();
 
       this.logger.log('✅ Indexer initialized');
@@ -74,10 +44,6 @@ export class IndexerService implements OnModuleInit {
     }
   }
 
-  /**
-   * Real-time log listener for new transactions
-   * This captures events as they happen on-chain
-   */
   private startLogListener(): void {
     const connection = this.solanaService.getConnection();
     const programId = this.solanaService.getProgramId();
@@ -102,7 +68,6 @@ export class IndexerService implements OnModuleInit {
               await this.handleEvent(event, logs.signature, ctx.slot);
             }
 
-            // Update last processed slot
             this.lastProcessedSlot = ctx.slot;
             await this.saveLastProcessedSlot();
           } catch (error) {
@@ -116,9 +81,6 @@ export class IndexerService implements OnModuleInit {
     this.logger.log('👂 Listening for program logs in real-time...');
   }
 
-  /**
-   * Backfill transactions that occurred while server was down
-   */
   private async backfillMissedTransactions(): Promise<void> {
     const connection = this.solanaService.getConnection();
     const programId = this.solanaService.getProgramId();
@@ -141,19 +103,15 @@ export class IndexerService implements OnModuleInit {
         `🔄 Backfilling ${slotGap} slots (${this.lastProcessedSlot} -> ${currentSlot})`,
       );
 
-      // Get transaction signatures for the program since last processed slot
       const signatures = await connection.getSignaturesForAddress(
         programId,
-        {
-          limit: 1000, // Adjust based on your needs
-        },
+        { limit: 1000 },
         'confirmed',
       );
 
       let backfilledCount = 0;
 
       for (const sig of signatures) {
-        // Only process transactions after our last processed slot
         if (sig.slot && sig.slot <= this.lastProcessedSlot) {
           break;
         }
@@ -188,9 +146,6 @@ export class IndexerService implements OnModuleInit {
     }
   }
 
-  /**
-   * Handle individual events with type discrimination
-   */
   private async handleEvent(
     event: ProgramEvent,
     signature: string,
@@ -202,72 +157,64 @@ export class IndexerService implements OnModuleInit {
       case 'SubscriptionWalletCreated':
         await this.handleSubscriptionWalletCreated(event);
         break;
-
       case 'YieldEnabled':
         await this.handleYieldEnabled(event);
         break;
-
       case 'WalletDeposit':
         await this.handleWalletDeposit(event, signature, slot);
         break;
-
       case 'WalletWithdrawal':
         await this.handleWalletWithdrawal(event, signature, slot);
         break;
-
       case 'SubscriptionCreated':
         await this.handleSubscriptionCreated(event, signature, slot);
         break;
-
       case 'PaymentExecuted':
         await this.handlePaymentExecuted(event, signature, slot);
         break;
-
       case 'SubscriptionCancelled':
         await this.handleSubscriptionCancelled(event, signature, slot);
         break;
-
       case 'YieldClaimed':
         await this.handleYieldClaimed(event, signature, slot);
         break;
-
       default:
         this.logger.warn(`Unhandled event type`);
     }
   }
-
-  /**
-   * Event Handlers
-   */
 
   private async handleSubscriptionWalletCreated(
     data: ProgramEvent,
   ): Promise<void> {
     if (data.name !== 'SubscriptionWalletCreated') return;
 
-    const wallet = this.walletRepo.create({
-      walletPda: data.data.walletPda.toString(),
-      ownerWallet: data.data.owner.toString(),
-      mint: data.data.mint.toString(),
-      isYieldEnabled: false,
-      totalSubscriptions: 0,
-      totalSpent: '0',
+    await this.prisma.subscriptionWallet.create({
+      data: {
+        walletPda: data.data.walletPda.toString(),
+        ownerWallet: data.data.owner.toString(),
+        mint: data.data.mint.toString(),
+        isYieldEnabled: false,
+        totalSubscriptions: 0,
+        totalSpent: '0',
+      },
     });
 
-    await this.walletRepo.save(wallet);
-    this.logger.log(`✅ Subscription wallet created: ${wallet.walletPda}`);
+    this.logger.log(
+      `✅ Subscription wallet created: ${data.data.walletPda.toString()}`,
+    );
   }
 
   private async handleYieldEnabled(data: ProgramEvent): Promise<void> {
     if (data.name !== 'YieldEnabled') return;
-    await this.walletRepo.update(
-      { walletPda: data.data.walletPda.toString() },
-      {
+
+    await this.prisma.subscriptionWallet.update({
+      where: { walletPda: data.data.walletPda.toString() },
+      data: {
         isYieldEnabled: true,
         yieldStrategy: data.data.strategy,
         yieldVault: data.data.vault.toString(),
       },
-    );
+    });
 
     this.logger.log(
       `✅ Yield enabled for wallet: ${data.data.walletPda.toString()}`,
@@ -280,6 +227,7 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'WalletDeposit') return;
+
     await this.recordTransaction({
       signature,
       subscriptionPda: '',
@@ -301,6 +249,7 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'WalletWithdrawal') return;
+
     await this.recordTransaction({
       signature,
       subscriptionPda: '',
@@ -323,40 +272,38 @@ export class IndexerService implements OnModuleInit {
   ): Promise<void> {
     if (data.name !== 'SubscriptionCreated') return;
 
-    const merchantPlan = await this.merchantPlanRepo.findOne({
-      where: { merchantWallet: data.data.merchant.toString() },
+    const merchantPlan = await this.prisma.merchantPlan.findUnique({
+      where: { planPda: data.data.planId },
     });
 
-    const subscription = this.subscriptionRepo.create({
-      subscriptionPda: data.data.subscriptionPda.toString(),
-      userWallet: data.data.user.toString(),
-      subscriptionWalletPda: data.data.wallet.toString(),
-      merchantWallet: data.data.merchant.toString(),
-      merchantPlanPda: data.data.planId,
-      mint: merchantPlan?.mint || 'USDC',
-      feeAmount: merchantPlan?.feeAmount || '0',
-      paymentInterval: merchantPlan?.paymentInterval || '0',
-      lastPaymentTimestamp: Date.now().toString(),
-      totalPaid: '0',
-      paymentCount: 0,
-      isActive: true,
+    const subscription = await this.prisma.subscription.create({
+      data: {
+        subscriptionPda: data.data.subscriptionPda.toString(),
+        userWallet: data.data.user.toString(),
+        subscriptionWalletPda: data.data.wallet.toString(),
+        merchantWallet: data.data.merchant.toString(),
+        merchantPlanPda: data.data.planId,
+        mint: merchantPlan?.mint || 'USDC',
+        feeAmount: merchantPlan?.feeAmount || '0',
+        paymentInterval: merchantPlan?.paymentInterval || '0',
+        lastPaymentTimestamp: Date.now().toString(),
+        totalPaid: '0',
+        paymentCount: 0,
+        isActive: true,
+      },
     });
-
-    await this.subscriptionRepo.save(subscription);
 
     if (merchantPlan) {
-      await this.merchantPlanRepo.increment(
-        { planPda: merchantPlan.planPda },
-        'totalSubscribers',
-        1,
-      );
+      await this.prisma.merchantPlan.update({
+        where: { planPda: merchantPlan.planPda },
+        data: { totalSubscribers: { increment: 1 } },
+      });
     }
 
-    await this.walletRepo.increment(
-      { walletPda: data.data.wallet.toString() },
-      'totalSubscriptions',
-      1,
-    );
+    await this.prisma.subscriptionWallet.update({
+      where: { walletPda: data.data.wallet.toString() },
+      data: { totalSubscriptions: { increment: 1 } },
+    });
 
     await this.recordTransaction({
       signature,
@@ -377,32 +324,66 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'PaymentExecuted') return;
-    const subscription = await this.subscriptionRepo.findOne({
+
+    const subscription = await this.prisma.subscription.findUnique({
       where: { subscriptionPda: data.data.subscriptionPda.toString() },
     });
 
     if (subscription) {
       const amount = data.data.amount.toString();
-
-      subscription.totalPaid = (
+      const newTotalPaid = (
         BigInt(subscription.totalPaid) + BigInt(amount)
       ).toString();
-      subscription.paymentCount = data.data.paymentNumber;
-      subscription.lastPaymentTimestamp = Date.now().toString();
 
-      await this.subscriptionRepo.save(subscription);
+      await this.prisma.subscription.update({
+        where: { subscriptionPda: subscription.subscriptionPda },
+        data: {
+          totalPaid: newTotalPaid,
+          paymentCount: data.data.paymentNumber,
+          lastPaymentTimestamp: Date.now().toString(),
+        },
+      });
 
-      await this.merchantPlanRepo.increment(
-        { planPda: subscription.merchantPlanPda },
-        'totalRevenue',
-        parseInt(amount),
-      );
+      // merchantPlan.totalRevenue is stored as a string in the database;
+      // read current value, add the amount using BigInt, and write back the summed string.
+      const merchantPlanRecord = await this.prisma.merchantPlan.findUnique({
+        where: { planPda: subscription.merchantPlanPda },
+      });
 
-      await this.walletRepo.increment(
-        { walletPda: subscription.subscriptionWalletPda },
-        'totalSpent',
-        parseInt(amount),
-      );
+      if (merchantPlanRecord) {
+        const currentRevenue = merchantPlanRecord.totalRevenue ?? '0';
+        const updatedTotalRevenue = (
+          BigInt(currentRevenue) + BigInt(amount)
+        ).toString();
+
+        await this.prisma.merchantPlan.update({
+          where: { planPda: merchantPlanRecord.planPda },
+          data: {
+            totalRevenue: updatedTotalRevenue,
+          },
+        });
+      }
+
+      // subscriptionWallet.totalSpent is stored as a string in the database;
+      // read current value, add the amount using BigInt, and write back the summed string.
+      const subscriptionWalletRecord =
+        await this.prisma.subscriptionWallet.findUnique({
+          where: { walletPda: subscription.subscriptionWalletPda },
+        });
+
+      if (subscriptionWalletRecord) {
+        const currentTotalSpent = subscriptionWalletRecord.totalSpent ?? '0';
+        const updatedTotalSpent = (
+          BigInt(currentTotalSpent) + BigInt(amount)
+        ).toString();
+
+        await this.prisma.subscriptionWallet.update({
+          where: { walletPda: subscriptionWalletRecord.walletPda },
+          data: {
+            totalSpent: updatedTotalSpent,
+          },
+        });
+      }
 
       await this.recordTransaction({
         signature,
@@ -426,27 +407,29 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'SubscriptionCancelled') return;
-    const subscription = await this.subscriptionRepo.findOne({
+
+    const subscription = await this.prisma.subscription.findUnique({
       where: { subscriptionPda: data.data.subscriptionPda.toString() },
     });
 
     if (subscription) {
-      subscription.isActive = false;
-      subscription.cancelledAt = new Date();
+      await this.prisma.subscription.update({
+        where: { subscriptionPda: subscription.subscriptionPda },
+        data: {
+          isActive: false,
+          cancelledAt: new Date(),
+        },
+      });
 
-      await this.subscriptionRepo.save(subscription);
+      await this.prisma.merchantPlan.update({
+        where: { planPda: subscription.merchantPlanPda },
+        data: { totalSubscribers: { decrement: 1 } },
+      });
 
-      await this.merchantPlanRepo.decrement(
-        { planPda: subscription.merchantPlanPda },
-        'totalSubscribers',
-        1,
-      );
-
-      await this.walletRepo.decrement(
-        { walletPda: subscription.subscriptionWalletPda },
-        'totalSubscriptions',
-        1,
-      );
+      await this.prisma.subscriptionWallet.update({
+        where: { walletPda: subscription.subscriptionWalletPda },
+        data: { totalSubscriptions: { decrement: 1 } },
+      });
 
       await this.recordTransaction({
         signature,
@@ -470,6 +453,7 @@ export class IndexerService implements OnModuleInit {
     slot: number,
   ): Promise<void> {
     if (data.name !== 'YieldClaimed') return;
+
     this.logger.log(
       `✅ Yield claimed: ${data.data.amount.toString()} from wallet ${data.data.walletPda.toString()}`,
     );
@@ -486,18 +470,15 @@ export class IndexerService implements OnModuleInit {
   }
 
   private async recordTransaction(data: TransactionRecordData): Promise<void> {
-    const transaction = this.transactionRepo.create({
-      ...data,
-      blockTime: Date.now().toString(),
-      status: 'success',
+    await this.prisma.transaction.create({
+      data: {
+        ...data,
+        blockTime: Date.now().toString(),
+        status: 'success',
+      },
     });
-
-    await this.transactionRepo.save(transaction);
   }
 
-  /**
-   * Sync all existing accounts (runs hourly + on startup)
-   */
   @Cron(CronExpression.EVERY_HOUR)
   async syncAllAccounts(): Promise<void> {
     if (this.isIndexing) {
@@ -512,8 +493,6 @@ export class IndexerService implements OnModuleInit {
       await this.syncMerchantPlans();
       await this.syncSubscriptionWallets();
       await this.syncSubscriptions();
-
-      // Update last sync time
       await this.updateLastSyncTime();
 
       this.logger.log('✅ Account sync completed');
@@ -530,8 +509,9 @@ export class IndexerService implements OnModuleInit {
     const plans = await this.solanaService.getAllMerchantPlans();
 
     for (const { pubkey, account } of plans) {
-      await this.merchantPlanRepo.upsert(
-        {
+      await this.prisma.merchantPlan.upsert({
+        where: { planPda: pubkey.toString() },
+        create: {
           planPda: pubkey.toString(),
           merchantWallet: account.merchant.toString(),
           planId: account.planId,
@@ -543,8 +523,17 @@ export class IndexerService implements OnModuleInit {
           totalSubscribers: account.totalSubscribers,
           totalRevenue: '0',
         },
-        ['planPda'],
-      );
+        update: {
+          merchantWallet: account.merchant.toString(),
+          planId: account.planId,
+          planName: account.planName,
+          mint: account.mint.toString(),
+          feeAmount: account.feeAmount.toString(),
+          paymentInterval: account.paymentInterval.toString(),
+          isActive: account.isActive,
+          totalSubscribers: account.totalSubscribers,
+        },
+      });
     }
 
     this.logger.log(`✅ Synced ${plans.length} merchant plans`);
@@ -556,8 +545,9 @@ export class IndexerService implements OnModuleInit {
     const wallets = await this.solanaService.getAllSubscriptionWallets();
 
     for (const { pubkey, account } of wallets) {
-      await this.walletRepo.upsert(
-        {
+      await this.prisma.subscriptionWallet.upsert({
+        where: { walletPda: pubkey.toString() },
+        create: {
           walletPda: pubkey.toString(),
           ownerWallet: account.owner.toString(),
           mint: account.mint.toString(),
@@ -567,8 +557,16 @@ export class IndexerService implements OnModuleInit {
           totalSubscriptions: account.totalSubscriptions,
           totalSpent: account.totalSpent.toString(),
         },
-        ['walletPda'],
-      );
+        update: {
+          ownerWallet: account.owner.toString(),
+          mint: account.mint.toString(),
+          isYieldEnabled: account.isYieldEnabled,
+          yieldStrategy: account.yieldStrategy,
+          yieldVault: account.yieldVault.toString(),
+          totalSubscriptions: account.totalSubscriptions,
+          totalSpent: account.totalSpent.toString(),
+        },
+      });
     }
 
     this.logger.log(`✅ Synced ${wallets.length} subscription wallets`);
@@ -580,8 +578,9 @@ export class IndexerService implements OnModuleInit {
     const subscriptions = await this.solanaService.getAllSubscriptions();
 
     for (const { pubkey, account } of subscriptions) {
-      await this.subscriptionRepo.upsert(
-        {
+      await this.prisma.subscription.upsert({
+        where: { subscriptionPda: pubkey.toString() },
+        create: {
           subscriptionPda: pubkey.toString(),
           userWallet: account.user.toString(),
           subscriptionWalletPda: account.subscriptionWallet.toString(),
@@ -595,16 +594,25 @@ export class IndexerService implements OnModuleInit {
           paymentCount: account.paymentCount,
           isActive: account.isActive,
         },
-        ['subscriptionPda'],
-      );
+        update: {
+          userWallet: account.user.toString(),
+          subscriptionWalletPda: account.subscriptionWallet.toString(),
+          merchantWallet: account.merchant.toString(),
+          merchantPlanPda: account.merchantPlan.toString(),
+          mint: account.mint.toString(),
+          feeAmount: account.feeAmount.toString(),
+          paymentInterval: account.paymentInterval.toString(),
+          lastPaymentTimestamp: account.lastPaymentTimestamp.toString(),
+          totalPaid: account.totalPaid.toString(),
+          paymentCount: account.paymentCount,
+          isActive: account.isActive,
+        },
+      });
     }
 
     this.logger.log(`✅ Synced ${subscriptions.length} subscriptions`);
   }
 
-  /**
-   * Load last processed slot from database
-   */
   private async loadLastProcessedSlot(): Promise<void> {
     const connection = this.solanaService.getConnection();
 
@@ -612,8 +620,7 @@ export class IndexerService implements OnModuleInit {
       throw new Error('Connection is not initialized');
     }
 
-    // Try to load from database
-    const state = await this.indexerStateRepo.findOne({
+    const state = await this.prisma.indexerState.findUnique({
       where: { key: this.INDEXER_STATE_KEY },
     });
 
@@ -623,38 +630,33 @@ export class IndexerService implements OnModuleInit {
         `📍 Loaded last processed slot from DB: ${this.lastProcessedSlot}`,
       );
     } else {
-      // First time running - get current slot
       this.lastProcessedSlot = await connection.getSlot('confirmed');
       this.logger.log(
         `📍 First run - starting from current slot: ${this.lastProcessedSlot}`,
       );
-
-      // Save initial state
       await this.saveLastProcessedSlot();
     }
   }
 
-  /**
-   * Save last processed slot to database
-   */
   private async saveLastProcessedSlot(): Promise<void> {
-    await this.indexerStateRepo.upsert(
-      {
+    await this.prisma.indexerState.upsert({
+      where: { key: this.INDEXER_STATE_KEY },
+      create: {
         key: this.INDEXER_STATE_KEY,
-        lastProcessedSlot: this.lastProcessedSlot,
+        lastProcessedSlot: BigInt(this.lastProcessedSlot),
         lastSyncTime: new Date(),
       },
-      ['key'],
-    );
+      update: {
+        lastProcessedSlot: BigInt(this.lastProcessedSlot),
+        lastSyncTime: new Date(),
+      },
+    });
   }
 
-  /**
-   * Update last sync time
-   */
   private async updateLastSyncTime(): Promise<void> {
-    await this.indexerStateRepo.update(
-      { key: this.INDEXER_STATE_KEY },
-      { lastSyncTime: new Date() },
-    );
+    await this.prisma.indexerState.update({
+      where: { key: this.INDEXER_STATE_KEY },
+      data: { lastSyncTime: new Date() },
+    });
   }
 }

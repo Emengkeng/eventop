@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
-import { Merchant } from '../entities/merchant.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
 import { firstValueFrom } from 'rxjs';
 
@@ -17,16 +15,12 @@ export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
   constructor(
-    @InjectRepository(Merchant)
-    private merchantRepo: Repository<Merchant>,
+    private prisma: PrismaService,
     private httpService: HttpService,
   ) {}
 
-  /**
-   * Send webhook to merchant
-   */
   async sendWebhook(merchantWallet: string, payload: WebhookPayload) {
-    const merchant = await this.merchantRepo.findOne({
+    const merchant = await this.prisma.merchant.findUnique({
       where: { walletAddress: merchantWallet },
     });
 
@@ -38,10 +32,11 @@ export class WebhookService {
     }
 
     try {
-      // Create signature
-      const signature = this.generateSignature(payload, merchant.webhookSecret);
+      const signature = this.generateSignature(
+        payload,
+        merchant.webhookSecret!,
+      );
 
-      // Send POST request
       await firstValueFrom(
         this.httpService.post(merchant.webhookUrl, payload, {
           headers: {
@@ -56,23 +51,15 @@ export class WebhookService {
       this.logger.log(
         `✅ Webhook sent to ${merchant.companyName || merchantWallet}: ${payload.event}`,
       );
-
-      // return response.data;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
         `❌ Webhook failed for ${merchantWallet}: ${errorMessage}`,
       );
-
-      // TODO: Implement retry logic with exponential backoff
-      // TODO: Store failed webhooks for manual retry
     }
   }
 
-  /**
-   * Generate HMAC signature for webhook payload
-   */
   private generateSignature(payload: any, secret: string): string {
     const payloadString = JSON.stringify(payload);
     return crypto
@@ -81,9 +68,6 @@ export class WebhookService {
       .digest('hex');
   }
 
-  /**
-   * Verify webhook signature
-   */
   verifySignature(payload: any, signature: string, secret: string): boolean {
     const expectedSignature = this.generateSignature(payload, secret);
     return crypto.timingSafeEqual(
@@ -92,9 +76,6 @@ export class WebhookService {
     );
   }
 
-  /**
-   * Send subscription created webhook
-   */
   async notifySubscriptionCreated(data: {
     subscriptionPda: string;
     userWallet: string;
@@ -114,9 +95,6 @@ export class WebhookService {
     });
   }
 
-  /**
-   * Send payment executed webhook
-   */
   async notifyPaymentExecuted(data: {
     subscriptionPda: string;
     userWallet: string;
@@ -136,9 +114,6 @@ export class WebhookService {
     });
   }
 
-  /**
-   * Send subscription cancelled webhook
-   */
   async notifySubscriptionCancelled(data: {
     subscriptionPda: string;
     userWallet: string;
@@ -158,9 +133,6 @@ export class WebhookService {
     });
   }
 
-  /**
-   * Send payment failed webhook
-   */
   async notifyPaymentFailed(data: {
     subscriptionPda: string;
     userWallet: string;

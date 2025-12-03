@@ -1,23 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Merchant } from '../entities/merchant.entity';
-import { MerchantPlan } from '../entities/merchant-plan.entity';
-import { Subscription } from '../entities/subscription.entity';
+import { PrismaService } from '../prisma/prisma.service';
 import * as crypto from 'crypto';
+import { Prisma } from '../generated/client';
 
 @Injectable()
 export class MerchantService {
-  constructor(
-    @InjectRepository(Merchant)
-    private merchantRepo: Repository<Merchant>,
-
-    @InjectRepository(MerchantPlan)
-    private planRepo: Repository<MerchantPlan>,
-
-    @InjectRepository(Subscription)
-    private subscriptionRepo: Repository<Subscription>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async registerMerchant(data: {
     walletAddress: string;
@@ -25,7 +13,7 @@ export class MerchantService {
     email?: string;
     logoUrl?: string;
   }) {
-    const existing = await this.merchantRepo.findOne({
+    const existing = await this.prisma.merchant.findUnique({
       where: { walletAddress: data.walletAddress },
     });
 
@@ -33,19 +21,21 @@ export class MerchantService {
       return existing;
     }
 
-    // Generate webhook secret
     const webhookSecret = crypto.randomBytes(32).toString('hex');
 
-    const merchant = this.merchantRepo.create({
-      ...data,
-      webhookSecret,
+    return this.prisma.merchant.create({
+      data: {
+        ...data,
+        webhookSecret,
+      },
     });
-
-    return this.merchantRepo.save(merchant);
   }
 
-  async updateMerchant(walletAddress: string, data: Partial<Merchant>) {
-    const merchant = await this.merchantRepo.findOne({
+  async updateMerchant(
+    walletAddress: string,
+    data: Prisma.MerchantUpdateInput,
+  ) {
+    const merchant = await this.prisma.merchant.findUnique({
       where: { walletAddress },
     });
 
@@ -53,26 +43,28 @@ export class MerchantService {
       throw new NotFoundException('Merchant not found');
     }
 
-    Object.assign(merchant, data);
-    return this.merchantRepo.save(merchant);
+    return this.prisma.merchant.update({
+      where: { walletAddress },
+      data,
+    });
   }
 
   async getMerchant(walletAddress: string) {
-    return this.merchantRepo.findOne({
+    return this.prisma.merchant.findUnique({
       where: { walletAddress },
-      relations: ['plans'],
+      include: { plans: true },
     });
   }
 
   async getMerchantPlans(walletAddress: string) {
-    return this.planRepo.find({
+    return this.prisma.merchantPlan.findMany({
       where: { merchantWallet: walletAddress },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async getPlanDetail(planPda: string) {
-    return this.planRepo.findOne({
+    return this.prisma.merchantPlan.findUnique({
       where: { planPda },
     });
   }
@@ -83,43 +75,49 @@ export class MerchantService {
     maxPrice?: number;
     search?: string;
   }) {
-    const qb = this.planRepo.createQueryBuilder('plan');
+    const where: Prisma.MerchantPlanWhereInput = {
+      isActive: true,
+    };
 
     if (query.category) {
-      qb.andWhere('plan.category = :category', { category: query.category });
-    }
-
-    if (query.minPrice) {
-      qb.andWhere('CAST(plan.feeAmount AS BIGINT) >= :minPrice', {
-        minPrice: query.minPrice,
-      });
-    }
-
-    if (query.maxPrice) {
-      qb.andWhere('CAST(plan.feeAmount AS BIGINT) <= :maxPrice', {
-        maxPrice: query.maxPrice,
-      });
+      where.category = query.category;
     }
 
     if (query.search) {
-      qb.andWhere(
-        '(plan.planName ILIKE :search OR plan.description ILIKE :search)',
-        { search: `%${query.search}%` },
+      where.OR = [
+        { planName: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    // Note: Price filtering with BigInt stored as string requires runtime filtering
+    let plans = await this.prisma.merchantPlan.findMany({
+      where,
+      orderBy: { totalSubscribers: 'desc' },
+    });
+
+    // Filter by price in-memory since we store as string
+    if (query.minPrice !== undefined) {
+      plans = plans.filter(
+        (p) => BigInt(p.feeAmount) >= BigInt(query.minPrice!),
       );
     }
 
-    qb.andWhere('plan.isActive = true');
-    qb.orderBy('plan.totalSubscribers', 'DESC');
+    if (query.maxPrice !== undefined) {
+      plans = plans.filter(
+        (p) => BigInt(p.feeAmount) <= BigInt(query.maxPrice!),
+      );
+    }
 
-    return qb.getMany();
+    return plans;
   }
 
   async getMerchantAnalytics(walletAddress: string) {
-    const plans = await this.planRepo.find({
+    const plans = await this.prisma.merchantPlan.findMany({
       where: { merchantWallet: walletAddress },
     });
 
-    const subscriptions = await this.subscriptionRepo.find({
+    const subscriptions = await this.prisma.subscription.findMany({
       where: { merchantWallet: walletAddress },
     });
 
@@ -133,7 +131,6 @@ export class MerchantService {
     const mrr = subscriptions
       .filter((s) => s.isActive)
       .reduce((sum, s) => {
-        // Calculate monthly recurring revenue
         const interval = parseInt(s.paymentInterval);
         const amount = BigInt(s.feeAmount);
         const monthlyAmount = (amount * BigInt(2592000)) / BigInt(interval);
@@ -155,12 +152,11 @@ export class MerchantService {
   }
 
   async getCustomers(merchantWallet: string) {
-    const subscriptions = await this.subscriptionRepo.find({
+    const subscriptions = await this.prisma.subscription.findMany({
       where: { merchantWallet },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     });
 
-    // Group by user
     const customerMap = new Map();
 
     for (const sub of subscriptions) {
@@ -186,7 +182,7 @@ export class MerchantService {
   }
 
   async regenerateWebhookSecret(walletAddress: string) {
-    const merchant = await this.merchantRepo.findOne({
+    const merchant = await this.prisma.merchant.findUnique({
       where: { walletAddress },
     });
 
@@ -194,9 +190,13 @@ export class MerchantService {
       throw new NotFoundException('Merchant not found');
     }
 
-    merchant.webhookSecret = crypto.randomBytes(32).toString('hex');
-    await this.merchantRepo.save(merchant);
+    const webhookSecret = crypto.randomBytes(32).toString('hex');
 
-    return { webhookSecret: merchant.webhookSecret };
+    await this.prisma.merchant.update({
+      where: { walletAddress },
+      data: { webhookSecret },
+    });
+
+    return { webhookSecret };
   }
 }

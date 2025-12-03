@@ -1,39 +1,26 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Subscription } from '../entities/subscription.entity';
-import { SubscriptionWallet } from '../entities/subscription-wallet.entity';
-import { Transaction } from '../entities/transaction.entity';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SubscriptionService {
-  constructor(
-    @InjectRepository(Subscription)
-    private subscriptionRepo: Repository<Subscription>,
-
-    @InjectRepository(SubscriptionWallet)
-    private walletRepo: Repository<SubscriptionWallet>,
-
-    @InjectRepository(Transaction)
-    private transactionRepo: Repository<Transaction>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async getSubscriptionsByUser(userWallet: string) {
-    return this.subscriptionRepo.find({
+    return this.prisma.subscription.findMany({
       where: { userWallet },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async getSubscriptionsByMerchant(merchantWallet: string) {
-    return this.subscriptionRepo.find({
+    return this.prisma.subscription.findMany({
       where: { merchantWallet },
-      order: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async getSubscriptionDetail(subscriptionPda: string) {
-    const subscription = await this.subscriptionRepo.findOne({
+    const subscription = await this.prisma.subscription.findUnique({
       where: { subscriptionPda },
     });
 
@@ -41,10 +28,9 @@ export class SubscriptionService {
       throw new NotFoundException('Subscription not found');
     }
 
-    // Get transaction history
-    const transactions = await this.transactionRepo.find({
+    const transactions = await this.prisma.transaction.findMany({
       where: { subscriptionPda },
-      order: { blockTime: 'DESC' },
+      orderBy: { blockTime: 'desc' },
       take: 50,
     });
 
@@ -55,15 +41,13 @@ export class SubscriptionService {
   }
 
   async getWalletByOwner(ownerWallet: string) {
-    return this.walletRepo.findOne({
+    return this.prisma.subscriptionWallet.findFirst({
       where: { ownerWallet },
     });
   }
 
   async getWalletBalance(walletPda: string) {
-    // This would query Solana blockchain for real-time balance
-    // For now, return from DB
-    const wallet = await this.walletRepo.findOne({
+    const wallet = await this.prisma.subscriptionWallet.findUnique({
       where: { walletPda },
     });
 
@@ -75,7 +59,7 @@ export class SubscriptionService {
   }
 
   async getSubscriptionStats(userWallet: string) {
-    const subscriptions = await this.subscriptionRepo.find({
+    const subscriptions = await this.prisma.subscription.findMany({
       where: { userWallet },
     });
 
@@ -94,7 +78,7 @@ export class SubscriptionService {
   }
 
   async getUpcomingPayments(userWallet: string) {
-    const subscriptions = await this.subscriptionRepo.find({
+    const subscriptions = await this.prisma.subscription.findMany({
       where: { userWallet, isActive: true },
     });
 
