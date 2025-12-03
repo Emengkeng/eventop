@@ -1,34 +1,24 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
-import { Subscription } from '../entities/subscription.entity';
-import { Transaction } from '../entities/transaction.entity';
-import { MerchantPlan } from '../entities/merchant-plan.entity';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AnalyticsService {
-  constructor(
-    @InjectRepository(Subscription)
-    private subscriptionRepo: Repository<Subscription>,
-
-    @InjectRepository(Transaction)
-    private transactionRepo: Repository<Transaction>,
-
-    @InjectRepository(MerchantPlan)
-    private planRepo: Repository<MerchantPlan>,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   async getRevenueChart(merchantWallet: string, days: number = 30) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const transactions = await this.transactionRepo.find({
+    const transactions = await this.prisma.transaction.findMany({
       where: {
         toWallet: merchantWallet,
         type: 'payment',
-        indexedAt: Between(startDate, new Date()),
+        indexedAt: {
+          gte: startDate,
+          lte: new Date(),
+        },
       },
-      order: { blockTime: 'ASC' },
+      orderBy: { blockTime: 'asc' },
     });
 
     // Group by day
@@ -52,12 +42,15 @@ export class AnalyticsService {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const subscriptions = await this.subscriptionRepo.find({
+    const subscriptions = await this.prisma.subscription.findMany({
       where: {
         merchantWallet,
-        createdAt: Between(startDate, new Date()),
+        createdAt: {
+          gte: startDate,
+          lte: new Date(),
+        },
       },
-      order: { createdAt: 'ASC' },
+      orderBy: { createdAt: 'asc' },
     });
 
     // Group by day
@@ -77,12 +70,16 @@ export class AnalyticsService {
   }
 
   async getChurnRate(merchantWallet: string) {
-    const subscriptions = await this.subscriptionRepo.find({
+    const total = await this.prisma.subscription.count({
       where: { merchantWallet },
     });
 
-    const total = subscriptions.length;
-    const cancelled = subscriptions.filter((s) => !s.isActive).length;
+    const cancelled = await this.prisma.subscription.count({
+      where: {
+        merchantWallet,
+        isActive: false,
+      },
+    });
 
     return {
       totalSubscriptions: total,
@@ -92,7 +89,7 @@ export class AnalyticsService {
   }
 
   async getPlanPerformance(merchantWallet: string) {
-    const plans = await this.planRepo.find({
+    const plans = await this.prisma.merchantPlan.findMany({
       where: { merchantWallet },
     });
 

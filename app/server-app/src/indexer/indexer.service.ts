@@ -509,6 +509,16 @@ export class IndexerService implements OnModuleInit {
     const plans = await this.solanaService.getAllMerchantPlans();
 
     for (const { pubkey, account } of plans) {
+      // First, ensure the merchant exists
+      await this.prisma.merchant.upsert({
+        where: { walletAddress: account.merchant.toString() },
+        create: {
+          walletAddress: account.merchant.toString(),
+        },
+        update: {}, // No updates needed if it already exists
+      });
+
+      // Now upsert the merchant plan
       await this.prisma.merchantPlan.upsert({
         where: { planPda: pubkey.toString() },
         create: {

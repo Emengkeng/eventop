@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { IndexerModule } from './indexer/indexer.module';
@@ -14,7 +15,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    PrismaModule, // Global module for Prisma
+    PrismaModule,
     ScheduleModule.forRoot(),
     IndexerModule,
     SubscriptionModule,
@@ -23,6 +24,7 @@ import { RateLimitModule } from './common/rate-limit/rate-limit.module';
     AnalyticsModule,
     AuthModule,
     RateLimitModule,
+    HttpModule,
   ],
 })
 export class AppModule {}
