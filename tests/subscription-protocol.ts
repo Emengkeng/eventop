@@ -102,13 +102,13 @@ describe("subscription_protocol", () => {
       const tx = await program.methods
         .createSubscriptionWallet()
         .accounts({
-          subscriptionWallet: subscriptionWalletPDA,
+          // subscriptionWallet: subscriptionWalletPDA,
           mainTokenAccount: walletTokenAccount,
           user: user.publicKey,
           mint: mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          // tokenProgram: TOKEN_PROGRAM_ID,
+          // systemProgram: anchor.web3.SystemProgram.programId,
+         // rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .signers([user, walletTokenAccountKp])
         .rpc();
@@ -136,12 +136,12 @@ describe("subscription_protocol", () => {
       await program.methods
         .depositToWallet(depositAmount)
         .accounts({
-          subscriptionWallet: subscriptionWalletPDA,
+         // subscriptionWallet: subscriptionWalletPDA,
           user: user.publicKey,
           userTokenAccount: userTokenAccount,
           walletTokenAccount: walletTokenAccount,
           yieldVaultAccount: yieldVault.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+         // tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([user])
         .rpc();
@@ -168,12 +168,12 @@ describe("subscription_protocol", () => {
       await program.methods
         .withdrawFromWallet(withdrawAmount)
         .accounts({
-          subscriptionWallet: subscriptionWalletPDA,
-          owner: user.publicKey,
+         // subscriptionWallet: subscriptionWalletPDA,
+         // owner: user.publicKey,
           userTokenAccount: userTokenAccount,
           walletTokenAccount: walletTokenAccount,
           yieldVaultAccount: yieldVault.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+         // tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([user])
         .rpc();
@@ -195,8 +195,8 @@ describe("subscription_protocol", () => {
       await program.methods
         .enableYield({ marginfiLend: {} })
         .accounts({
-          subscriptionWallet: subscriptionWalletPDA,
-          owner: user.publicKey,
+         // subscriptionWallet: subscriptionWalletPDA,
+          // owner: user.publicKey,
           yieldVault: yieldVault.publicKey,
         })
         .signers([user])
@@ -234,10 +234,10 @@ describe("subscription_protocol", () => {
           PAYMENT_INTERVAL
         )
         .accounts({
-          merchantPlan: merchantPlanPDA,
+          // merchantPlan: merchantPlanPDA,
           merchant: merchant.publicKey,
           mint: mint,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          // systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([merchant])
         .rpc();
@@ -279,13 +279,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .subscribeWithWallet()
         .accounts({
-          subscriptionState: subscriptionStatePDA,
-          subscriptionWallet: subscriptionWalletPDA,
+         // subscriptionState: subscriptionStatePDA,
+        //  subscriptionWallet: subscriptionWalletPDA,
           merchantPlan: merchantPlanPDA,
           user: user.publicKey,
           walletTokenAccount: walletTokenAccount,
           walletYieldVault: yieldVault.publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
+         // systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([user])
         .rpc();
@@ -346,13 +346,13 @@ describe("subscription_protocol", () => {
       const tx = await program.methods
         .executePaymentFromWallet()
         .accounts({
-          subscriptionState: subscriptionStatePDA,
-          subscriptionWallet: subscriptionWalletPDA,
+          // subscriptionState: subscriptionStatePDA,
+         // subscriptionWallet: subscriptionWalletPDA,
           merchantPlan: merchantPlanPDA,
           walletTokenAccount: walletTokenAccount,
           merchantTokenAccount: merchantTokenAccount,
-          walletYieldVault: yieldVault.publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+         // walletYieldVault: yieldVault.publicKey,
+         // tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc();
 
@@ -463,13 +463,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .createSubscriptionWallet()
         .accounts({
-          subscriptionWallet: user2WalletPDA,
+         // subscriptionWallet: user2WalletPDA,
           mainTokenAccount: user2WalletTokenKp.publicKey,
           user: user2.publicKey,
           mint: mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          // tokenProgram: TOKEN_PROGRAM_ID,
+          // systemProgram: anchor.web3.SystemProgram.programId,
+         // rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .signers([user2, user2WalletTokenKp])
         .rpc();
@@ -478,12 +478,12 @@ describe("subscription_protocol", () => {
       await program.methods
         .depositToWallet(new BN(5000000000))
         .accounts({
-          subscriptionWallet: user2WalletPDA,
+         // subscriptionWallet: user2WalletPDA,
           user: user2.publicKey,
           userTokenAccount: user2TokenAccountInfo.address,
           walletTokenAccount: user2WalletTokenKp.publicKey,
           yieldVaultAccount: anchor.web3.Keypair.generate().publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+         // tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([user2])
         .rpc();
@@ -502,13 +502,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .subscribeWithWallet()
         .accounts({
-          subscriptionState: user2SubPDA,
-          subscriptionWallet: user2WalletPDA,
+        //  subscriptionState: user2SubPDA,
+         // subscriptionWallet: user2WalletPDA,
           merchantPlan: merchantPlanPDA,
           user: user2.publicKey,
           walletTokenAccount: user2WalletTokenKp.publicKey,
           walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
+        //  systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([user2])
         .rpc();
@@ -526,13 +526,13 @@ describe("subscription_protocol", () => {
         await program.methods
           .executePaymentFromWallet()
           .accounts({
-            subscriptionState: user2SubPDA,
-            subscriptionWallet: user2WalletPDA,
+          //  subscriptionState: user2SubPDA,
+          //  subscriptionWallet: user2WalletPDA,
             merchantPlan: merchantPlanPDA,
             walletTokenAccount: user2WalletTokenKp.publicKey,
             merchantTokenAccount: merchantTokenAccount,
-            walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
+          //  walletYieldVault: anchor.web3.Keypair.generate().publicKey,
+           // tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
 
@@ -577,10 +577,10 @@ describe("subscription_protocol", () => {
       await program.methods
         .cancelSubscriptionWallet()
         .accounts({
-          subscriptionState: subscriptionStatePDA,
+          //subscriptionState: subscriptionStatePDA,
           subscriptionWallet: subscriptionWalletPDA,
           merchantPlan: merchantPlanPDA,
-          user: user.publicKey,
+         // user: user.publicKey,
         })
         .signers([user])
         .rpc();
@@ -618,12 +618,12 @@ describe("subscription_protocol", () => {
         await program.methods
           .claimYieldRewards()
           .accounts({
-            subscriptionWallet: subscriptionWalletPDA,
-            owner: user.publicKey,
+          //  subscriptionWallet: subscriptionWalletPDA,
+          //  owner: user.publicKey,
             userTokenAccount: userTokenAccount,
             walletTokenAccount: walletTokenAccount,
             yieldVaultAccount: yieldVault.publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
+           // tokenProgram: TOKEN_PROGRAM_ID,
           })
           .signers([user])
           .rpc();
@@ -677,13 +677,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .createSubscriptionWallet()
         .accounts({
-          subscriptionWallet: poorUserWalletPDA,
+        //  subscriptionWallet: poorUserWalletPDA,
           mainTokenAccount: walletTokenAccountKp.publicKey,
           user: poorUser.publicKey,
           mint: mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        //  tokenProgram: TOKEN_PROGRAM_ID,
+        //  systemProgram: anchor.web3.SystemProgram.programId,
+        //  rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .signers([poorUser, walletTokenAccountKp])
         .rpc();
@@ -692,12 +692,12 @@ describe("subscription_protocol", () => {
       await program.methods
         .depositToWallet(new BN(1000000))
         .accounts({
-          subscriptionWallet: poorUserWalletPDA,
+        //  subscriptionWallet: poorUserWalletPDA,
           user: poorUser.publicKey,
           userTokenAccount: poorUserTokenAccountInfo.address,
           walletTokenAccount: walletTokenAccountKp.publicKey,
           yieldVaultAccount: anchor.web3.Keypair.generate().publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+        //  tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([poorUser])
         .rpc();
@@ -716,13 +716,13 @@ describe("subscription_protocol", () => {
         await program.methods
           .subscribeWithWallet()
           .accounts({
-            subscriptionState: poorUserSubPDA,
-            subscriptionWallet: poorUserWalletPDA,
+          ///  subscriptionState: poorUserSubPDA,
+          //  subscriptionWallet: poorUserWalletPDA,
             merchantPlan: merchantPlanPDA,
             user: poorUser.publicKey,
             walletTokenAccount: walletTokenAccountKp.publicKey,
             walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-            systemProgram: anchor.web3.SystemProgram.programId,
+          //  systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([poorUser])
           .rpc();
@@ -775,13 +775,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .createSubscriptionWallet()
         .accounts({
-          subscriptionWallet: emptyWalletPDA,
+         // subscriptionWallet: emptyWalletPDA,
           mainTokenAccount: emptyWalletTokenKp.publicKey,
           user: emptyUser.publicKey,
           mint: mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        //  tokenProgram: TOKEN_PROGRAM_ID,
+       //  systemProgram: anchor.web3.SystemProgram.programId,
+        //  rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .signers([emptyUser, emptyWalletTokenKp])
         .rpc();
@@ -789,12 +789,12 @@ describe("subscription_protocol", () => {
       await program.methods
         .depositToWallet(minimumAmount)
         .accounts({
-          subscriptionWallet: emptyWalletPDA,
+       //   subscriptionWallet: emptyWalletPDA,
           user: emptyUser.publicKey,
           userTokenAccount: emptyUserTokenAccountInfo.address,
           walletTokenAccount: emptyWalletTokenKp.publicKey,
           yieldVaultAccount: anchor.web3.Keypair.generate().publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+        //  tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([emptyUser])
         .rpc();
@@ -812,13 +812,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .subscribeWithWallet()
         .accounts({
-          subscriptionState: emptySubPDA,
-          subscriptionWallet: emptyWalletPDA,
+        //  subscriptionState: emptySubPDA,
+        //  subscriptionWallet: emptyWalletPDA,
           merchantPlan: merchantPlanPDA,
           user: emptyUser.publicKey,
           walletTokenAccount: emptyWalletTokenKp.publicKey,
           walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
+        //  systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([emptyUser])
         .rpc();
@@ -830,13 +830,13 @@ describe("subscription_protocol", () => {
         await program.methods
           .executePaymentFromWallet()
           .accounts({
-            subscriptionState: emptySubPDA,
-            subscriptionWallet: emptyWalletPDA,
+          //  subscriptionState: emptySubPDA,
+          //  subscriptionWallet: emptyWalletPDA,
             merchantPlan: merchantPlanPDA,
             walletTokenAccount: emptyWalletTokenKp.publicKey,
             merchantTokenAccount: merchantTokenAccount,
-            walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
+          //  walletYieldVault: anchor.web3.Keypair.generate().publicKey,
+          //  tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
         
@@ -848,13 +848,13 @@ describe("subscription_protocol", () => {
         await program.methods
           .executePaymentFromWallet()
           .accounts({
-            subscriptionState: emptySubPDA,
-            subscriptionWallet: emptyWalletPDA,
+          //  subscriptionState: emptySubPDA,
+          //  subscriptionWallet: emptyWalletPDA,
             merchantPlan: merchantPlanPDA,
             walletTokenAccount: emptyWalletTokenKp.publicKey,
             merchantTokenAccount: merchantTokenAccount,
-            walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
+          //  walletYieldVault: anchor.web3.Keypair.generate().publicKey,
+          //  tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
         
@@ -874,8 +874,8 @@ describe("subscription_protocol", () => {
         await program.methods
           .enableYield({ kaminoLend: {} })
           .accounts({
-            subscriptionWallet: subscriptionWalletPDA,
-            owner: user.publicKey,
+          //  subscriptionWallet: subscriptionWalletPDA,
+          //  owner: user.publicKey,
             yieldVault: yieldVault.publicKey,
           })
           .signers([user])
@@ -894,13 +894,13 @@ describe("subscription_protocol", () => {
         await program.methods
           .executePaymentFromWallet()
           .accounts({
-            subscriptionState: subscriptionStatePDA,
-            subscriptionWallet: subscriptionWalletPDA,
+          //  subscriptionState: subscriptionStatePDA,
+          //  subscriptionWallet: subscriptionWalletPDA,
             merchantPlan: merchantPlanPDA,
             walletTokenAccount: walletTokenAccount,
             merchantTokenAccount: merchantTokenAccount,
-            walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
+          //  walletYieldVault: anchor.web3.Keypair.generate().publicKey,
+          //  tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
         
@@ -959,13 +959,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .createSubscriptionWallet()
         .accounts({
-          subscriptionWallet: schedulerSubWallet,
+        //  subscriptionWallet: schedulerSubWallet,
           mainTokenAccount: schedulerWalletTokenKp.publicKey,
           user: schedulerWallet.publicKey,
           mint: mint,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        //  tokenProgram: TOKEN_PROGRAM_ID,
+        //  systemProgram: anchor.web3.SystemProgram.programId,
+        //  rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .signers([schedulerWallet, schedulerWalletTokenKp])
         .rpc();
@@ -973,12 +973,12 @@ describe("subscription_protocol", () => {
       await program.methods
         .depositToWallet(new BN(50000000000))
         .accounts({
-          subscriptionWallet: schedulerSubWallet,
+        //  subscriptionWallet: schedulerSubWallet,
           user: schedulerWallet.publicKey,
           userTokenAccount: schedulerTokenAccountInfo.address,
           walletTokenAccount: schedulerWalletTokenKp.publicKey,
           yieldVaultAccount: anchor.web3.Keypair.generate().publicKey,
-          tokenProgram: TOKEN_PROGRAM_ID,
+        //  tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([schedulerWallet])
         .rpc();
@@ -997,13 +997,13 @@ describe("subscription_protocol", () => {
       await program.methods
         .subscribeWithWallet()
         .accounts({
-          subscriptionState: schedulerSubscription,
-          subscriptionWallet: schedulerSubWallet,
+        //  subscriptionState: schedulerSubscription,
+        //  subscriptionWallet: schedulerSubWallet,
           merchantPlan: merchantPlanPDA,
           user: schedulerWallet.publicKey,
           walletTokenAccount: schedulerWalletTokenKp.publicKey,
           walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
+        //  systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([schedulerWallet])
         .rpc();
@@ -1029,13 +1029,13 @@ describe("subscription_protocol", () => {
         const tx = await program.methods
           .executePaymentFromWallet()
           .accounts({
-            subscriptionState: schedulerSubscription,
-            subscriptionWallet: schedulerSubWallet,
+          //  subscriptionState: schedulerSubscription,
+          //  subscriptionWallet: schedulerSubWallet,
             merchantPlan: merchantPlanPDA,
             walletTokenAccount: await getWalletTokenAccount(schedulerSubWallet),
             merchantTokenAccount: merchantTokenAccount,
-            walletYieldVault: anchor.web3.Keypair.generate().publicKey,
-            tokenProgram: TOKEN_PROGRAM_ID,
+          // walletYieldVault: anchor.web3.Keypair.generate().publicKey,
+          //  tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
 

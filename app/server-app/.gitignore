@@ -8,3 +8,5 @@ test-ledger
 dist
 .env
 .env.local
+
+/src/generated/prisma
