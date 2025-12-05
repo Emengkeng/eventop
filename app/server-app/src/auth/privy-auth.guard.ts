@@ -49,7 +49,7 @@ export class PrivyAuthGuard implements CanActivate {
         expiration: verifiedClaims.expiration,
       };
 
-      this.logger.log(`✅ Authenticated user: ${verifiedClaims.userId}`);
+      // this.logger.log(`✅ Authenticated user: ${verifiedClaims.userId}`);
       return true;
     } catch (error) {
       const errorMessage =
