@@ -7,6 +7,7 @@
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
+    
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
