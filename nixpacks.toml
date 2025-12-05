@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_22", "yarn"]
 
 [phases.setup.nixPkgsArchive]
-archive = "9957cd48326fe8dbd52fdc50dd2502307f188b0e"
+archive = "3030f185ba6a4bf4f18b87f345f104e6a6961f7a"
 
 [phases.install]
 cmds = [
