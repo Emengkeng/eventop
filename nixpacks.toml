@@ -1,0 +1,17 @@
+[phases.setup]
+nixPkgs = ["nodejs", "yarn"]
+
+[phases.install]
+cmds = [
+  "yarn install --frozen-lockfile"
+]
+
+[phases.build]
+cmds = [
+  "yarn workspace server-app run prisma:generate",
+  "yarn workspace server-app run prisma:migrate:prod",
+  "yarn workspace server-app run build"
+]
+
+[start]
+cmd = "yarn workspace server-app run start:prod"
