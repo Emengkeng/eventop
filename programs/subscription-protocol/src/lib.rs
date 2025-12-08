@@ -8,6 +8,47 @@ declare_id!("GPVtSfXPiy8y4SkJrMC3VFyKUmGVhMrRbAp2NhiW1Ds2");
 pub mod subscription_protocol {
     use super::*;
 
+    /// Initialize protocol configuration (one-time, by deployer)
+    pub fn initialize_protocol(
+        ctx: Context<InitializeProtocol>,
+        protocol_fee_bps: u16, // Basis points (e.g., 250 = 2.5%)
+    ) -> Result<()> {
+        require!(protocol_fee_bps <= 1000, ErrorCode::FeeTooHigh); // Max 10%
+        
+        let config = &mut ctx.accounts.protocol_config;
+        config.authority = ctx.accounts.authority.key();
+        config.protocol_fee_bps = protocol_fee_bps;
+        config.treasury = ctx.accounts.treasury.key();
+        config.bump = ctx.bumps.protocol_config;
+
+        emit!(ProtocolInitialized {
+            authority: config.authority,
+            fee_bps: protocol_fee_bps,
+            treasury: config.treasury,
+        });
+
+        Ok(())
+    }
+
+    /// Update protocol fee (admin only)
+    pub fn update_protocol_fee(
+        ctx: Context<UpdateProtocolFee>,
+        new_fee_bps: u16,
+    ) -> Result<()> {
+        require!(new_fee_bps <= 1000, ErrorCode::FeeTooHigh); // Max 10%
+        
+        let config = &mut ctx.accounts.protocol_config;
+        let old_fee = config.protocol_fee_bps;
+        config.protocol_fee_bps = new_fee_bps;
+
+        emit!(ProtocolFeeUpdated {
+            old_fee_bps: old_fee,
+            new_fee_bps: new_fee_bps,
+        });
+
+        Ok(())
+    }
+
     /// Create a Subscription Wallet (Virtual Card) for a user
     pub fn create_subscription_wallet(
         ctx: Context<CreateSubscriptionWallet>,
@@ -182,12 +223,13 @@ pub mod subscription_protocol {
         ctx: Context<RegisterMerchant>,
         plan_id: String,
         plan_name: String,
-        fee_amount: u64,
+        fee_amount: u64, // DEPRECATED: Kept for backward compatibility, not used
         payment_interval_seconds: i64,
     ) -> Result<()> {
         require!(plan_id.len() <= 32, ErrorCode::PlanIdTooLong);
         require!(plan_name.len() <= 64, ErrorCode::PlanNameTooLong);
-        require!(fee_amount > 0, ErrorCode::InvalidFeeAmount);
+       // require!(fee_amount > 0, ErrorCode::InvalidFeeAmount);
+       // Removed fee_amount validation - it's not used anymore
         require!(payment_interval_seconds > 0, ErrorCode::InvalidInterval);
 
         let merchant_plan = &mut ctx.accounts.merchant_plan;
@@ -196,7 +238,7 @@ pub mod subscription_protocol {
         merchant_plan.mint = ctx.accounts.mint.key();
         merchant_plan.plan_id = plan_id;
         merchant_plan.plan_name = plan_name;
-        merchant_plan.fee_amount = fee_amount;
+        merchant_plan.fee_amount = fee_amount; // Stored but not used (backward compat)
         merchant_plan.payment_interval = payment_interval_seconds;
         merchant_plan.is_active = true;
         merchant_plan.total_subscribers = 0;
@@ -274,39 +316,35 @@ pub mod subscription_protocol {
         let subscription = &mut ctx.accounts.subscription_state;
         let merchant_plan = &ctx.accounts.merchant_plan;
         let wallet = &mut ctx.accounts.subscription_wallet;
+        let protocol_config = &ctx.accounts.protocol_config;
         let current_time = Clock::get()?.unix_timestamp;
         
-        // ============================================
-        // VALIDATION (Smart contract enforces rules)
-        // ============================================
+        // VALIDATION
+        require!(subscription.is_active, ErrorCode::SubscriptionInactive);
         
-        // Check 1: Subscription must be active
-        require!(
-            subscription.is_active,
-            ErrorCode::SubscriptionInactive
-        );
-
-        // Check 2: Enough time has passed (prevent early payments)
         let time_since_last = current_time - subscription.last_payment_timestamp;
         require!(
             time_since_last >= subscription.payment_interval,
             ErrorCode::PaymentTooEarly
         );
 
-        // Check 3: Sufficient balance in wallet
-        let fee_to_charge = subscription.fee_amount;
-        let available_balance = ctx.accounts.wallet_token_account.amount;
+        // Calculate fees with protocol fee
+        let base_amount = subscription.fee_amount;
+        let protocol_fee = (base_amount as u128)
+            .checked_mul(protocol_config.protocol_fee_bps as u128)
+            .unwrap()
+            .checked_div(10_000)
+            .unwrap() as u64;
         
-        require!(
-            available_balance >= fee_to_charge,
-            ErrorCode::InsufficientFunds
-        );
+        let merchant_receives = base_amount.checked_sub(protocol_fee)
+            .ok_or(ErrorCode::MathOverflow)?;
+        
+        let total_charge = base_amount;
 
-        // ============================================
-        // EXECUTION (Transfer payment)
-        // ============================================
-        
-        // Create PDA signer seeds for subscription wallet
+        let available_balance = ctx.accounts.wallet_token_account.amount;
+        require!(available_balance >= total_charge, ErrorCode::InsufficientFunds);
+
+        // Create PDA signer
         let owner_key = wallet.owner;
         let mint_key = wallet.mint;
         let bump = wallet.bump;
@@ -318,51 +356,66 @@ pub mod subscription_protocol {
         ];
         let signer_seeds = &[&seeds[..]];
 
-        // Transfer tokens from wallet to merchant
-        let transfer_accounts = Transfer {
-            from: ctx.accounts.wallet_token_account.to_account_info(),
-            to: ctx.accounts.merchant_token_account.to_account_info(),
-            authority: wallet.to_account_info(),
-        };
-        
-        let cpi_ctx = CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            transfer_accounts,
-            signer_seeds,
-        );
-        
-        token::transfer(cpi_ctx, fee_to_charge)?;
+        // Transfer to merchant
+        if merchant_receives > 0 {
+            let transfer_merchant = Transfer {
+                from: ctx.accounts.wallet_token_account.to_account_info(),
+                to: ctx.accounts.merchant_token_account.to_account_info(),
+                authority: wallet.to_account_info(),
+            };
+            
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                transfer_merchant,
+                signer_seeds,
+            );
+            
+            token::transfer(cpi_ctx, merchant_receives)?;
+        }
 
-        // ============================================
+        // Transfer protocol fee to treasury
+        if protocol_fee > 0 {
+            let transfer_protocol = Transfer {
+                from: ctx.accounts.wallet_token_account.to_account_info(),
+                to: ctx.accounts.protocol_treasury.to_account_info(),
+                authority: wallet.to_account_info(),
+            };
+            
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                transfer_protocol,
+                signer_seeds,
+            );
+            
+            token::transfer(cpi_ctx, protocol_fee)?;
+        }
+
         // STATE UPDATES
-        // ============================================
-        
         subscription.last_payment_timestamp = current_time;
         subscription.total_paid = subscription.total_paid
-            .checked_add(fee_to_charge)
+            .checked_add(total_charge)
             .ok_or(ErrorCode::MathOverflow)?;
         subscription.payment_count = subscription.payment_count
-        .checked_add(1)
-        .ok_or(ErrorCode::MathOverflow)?;
-    
-        wallet.total_spent = wallet.total_spent
-            .checked_add(fee_to_charge)
+            .checked_add(1)
             .ok_or(ErrorCode::MathOverflow)?;
 
-        // ============================================
-        // EVENT EMISSION (for indexer)
-        // ============================================
-        
+        wallet.total_spent = wallet.total_spent
+            .checked_add(total_charge)
+            .ok_or(ErrorCode::MathOverflow)?;
+
         emit!(PaymentExecuted {
             subscription_pda: subscription.key(),
             wallet_pda: wallet.key(),
             user: subscription.user,
             merchant: subscription.merchant,
-            amount: fee_to_charge,
+            amount: total_charge,
+            protocol_fee: protocol_fee,
+            merchant_received: merchant_receives,
             payment_number: subscription.payment_count,
         });
 
-        msg!("✅ Payment #{} executed: {} tokens", subscription.payment_count, fee_to_charge);
+        msg!("✅ Payment #{}: {} (merchant: {}, protocol: {})", 
+            subscription.payment_count, total_charge, merchant_receives, protocol_fee);
 
         Ok(())
     }
@@ -701,6 +754,12 @@ pub struct ExecutePaymentFromWallet<'info> {
     pub merchant_plan: Account<'info, MerchantPlan>,
 
     #[account(
+        seeds = [b"protocol_config"],
+        bump = protocol_config.bump,
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    #[account(
         mut,
         token::mint = subscription_wallet.mint,
         token::authority = subscription_wallet
@@ -713,6 +772,13 @@ pub struct ExecutePaymentFromWallet<'info> {
         constraint = merchant_token_account.owner == merchant_plan.merchant @ ErrorCode::InvalidMerchantAccount
     )]
     pub merchant_token_account: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        token::mint = subscription_state.mint,
+        constraint = protocol_treasury.owner == protocol_config.treasury @ ErrorCode::InvalidTreasuryAccount
+    )]
+    pub protocol_treasury: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -782,6 +848,39 @@ pub struct ClaimYieldRewards<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct InitializeProtocol<'info> {
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + ProtocolConfig::INIT_SPACE,
+        seeds = [b"protocol_config"],
+        bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    /// CHECK: Treasury account for protocol fees
+    pub treasury: AccountInfo<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateProtocolFee<'info> {
+    #[account(
+        mut,
+        seeds = [b"protocol_config"],
+        bump = protocol_config.bump,
+        has_one = authority @ ErrorCode::UnauthorizedProtocolUpdate
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    pub authority: Signer<'info>,
+}
+
 // State Accounts
 
 #[account]
@@ -828,6 +927,15 @@ pub struct SubscriptionState {
     pub total_paid: u64,
     pub payment_count: u32,
     pub is_active: bool,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct ProtocolConfig {
+    pub authority: Pubkey,
+    pub treasury: Pubkey,
+    pub protocol_fee_bps: u16, // Basis points (100 = 1%, 250 = 2.5%)
     pub bump: u8,
 }
 
@@ -889,6 +997,8 @@ pub struct PaymentExecuted {
     pub user: Pubkey,
     pub merchant: Pubkey,
     pub amount: u64,
+    pub protocol_fee: u64,
+    pub merchant_received: u64,
     pub payment_number: u32,
 }
 
@@ -906,6 +1016,19 @@ pub struct YieldClaimed {
     pub wallet_pda: Pubkey,
     pub user: Pubkey,
     pub amount: u64,
+}
+
+#[event]
+pub struct ProtocolInitialized {
+    pub authority: Pubkey,
+    pub fee_bps: u16,
+    pub treasury: Pubkey,
+}
+
+#[event]
+pub struct ProtocolFeeUpdated {
+    pub old_fee_bps: u16,
+    pub new_fee_bps: u16,
 }
 
 // Error Codes
@@ -983,4 +1106,13 @@ pub enum ErrorCode {
 
     #[msg("Merchant mismatch: subscription merchant does not match merchant plan")]
     MerchantMismatch,
+
+    #[msg("Protocol fee exceeds maximum allowed (10%)")]
+    FeeTooHigh,
+
+    #[msg("Unauthorized protocol configuration update")]
+    UnauthorizedProtocolUpdate,
+
+    #[msg("Invalid treasury account")]
+    InvalidTreasuryAccount,
 }
