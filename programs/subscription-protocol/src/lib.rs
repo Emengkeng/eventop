@@ -223,13 +223,12 @@ pub mod subscription_protocol {
         ctx: Context<RegisterMerchant>,
         plan_id: String,
         plan_name: String,
-        fee_amount: u64, // DEPRECATED: Kept for backward compatibility, not used
+        fee_amount: u64, // Amount the subscriber pays each interval
         payment_interval_seconds: i64,
     ) -> Result<()> {
         require!(plan_id.len() <= 32, ErrorCode::PlanIdTooLong);
         require!(plan_name.len() <= 64, ErrorCode::PlanNameTooLong);
-       // require!(fee_amount > 0, ErrorCode::InvalidFeeAmount);
-       // Removed fee_amount validation - it's not used anymore
+        require!(fee_amount > 0, ErrorCode::InvalidFeeAmount);
         require!(payment_interval_seconds > 0, ErrorCode::InvalidInterval);
 
         let merchant_plan = &mut ctx.accounts.merchant_plan;
@@ -238,7 +237,7 @@ pub mod subscription_protocol {
         merchant_plan.mint = ctx.accounts.mint.key();
         merchant_plan.plan_id = plan_id;
         merchant_plan.plan_name = plan_name;
-        merchant_plan.fee_amount = fee_amount; // Stored but not used (backward compat)
+        merchant_plan.fee_amount = fee_amount;
         merchant_plan.payment_interval = payment_interval_seconds;
         merchant_plan.is_active = true;
         merchant_plan.total_subscribers = 0;
