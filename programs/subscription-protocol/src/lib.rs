@@ -249,6 +249,7 @@ pub mod subscription_protocol {
     /// Subscribe using Subscription Wallet (New approach!)
     pub fn subscribe_with_wallet(
         ctx: Context<SubscribeWithWallet>,
+        session_token: Option<String>,
     ) -> Result<()> {
         let merchant_plan = &ctx.accounts.merchant_plan;
         let wallet = &mut ctx.accounts.subscription_wallet;
@@ -258,6 +259,10 @@ pub mod subscription_protocol {
             wallet.owner == ctx.accounts.user.key(),
             ErrorCode::UnauthorizedWalletAccess
         );
+
+        if let Some(ref token) = session_token {
+            require!(token.len() <= 64, ErrorCode::SessionTokenTooLong);
+        }
 
         // Calculate required buffer (3 months minimum)
         let min_buffer = merchant_plan.fee_amount.checked_mul(3).unwrap();
@@ -285,6 +290,7 @@ pub mod subscription_protocol {
         subscription.fee_amount = merchant_plan.fee_amount;
         subscription.payment_interval = merchant_plan.payment_interval;
         subscription.last_payment_timestamp = Clock::get()?.unix_timestamp;
+        subscription.session_token = session_token.clone();
         subscription.bump = ctx.bumps.subscription_state;
         subscription.is_active = true;
         subscription.total_paid = 0;
@@ -303,9 +309,13 @@ pub mod subscription_protocol {
             wallet: subscription.subscription_wallet,
             merchant: subscription.merchant,
             plan_id: merchant_plan.plan_id.clone(),
+            session_token: session_token,
         });
 
         msg!("Subscription created using Subscription Wallet");
+        if let Some(token) = subscription.session_token.as_ref() {
+            msg!("Session token: {}", token);
+        }
 
         Ok(())
     }
@@ -926,6 +936,8 @@ pub struct SubscriptionState {
     pub total_paid: u64,
     pub payment_count: u32,
     pub is_active: bool,
+    #[max_len(64)]
+    pub session_token: Option<String>,
     pub bump: u8,
 }
 
@@ -987,6 +999,7 @@ pub struct SubscriptionCreated {
     pub wallet: Pubkey,
     pub merchant: Pubkey,
     pub plan_id: String,
+    pub session_token: Option<String>,
 }
 
 #[event]
@@ -1114,4 +1127,10 @@ pub enum ErrorCode {
 
     #[msg("Invalid treasury account")]
     InvalidTreasuryAccount,
+
+    #[msg("Session token exceeds maximum length (64 characters)")]
+    SessionTokenTooLong,
+
+    #[msg("Session token already used")]
+    SessionTokenAlreadyUsed,
 }
