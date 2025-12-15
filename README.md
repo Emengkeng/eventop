@@ -29,6 +29,7 @@ A Solana-based subscription management system with yield-earning virtual wallets
 - [Web App](https://github.com/Emengkeng/eventop-web-app)
 - [Server App](https://github.com/Emengkeng/eventop-server-app)
 - [SDK](https://github.com/eventop-s/sdk)
+- [Yield Implementation](/docs/yield.md)
 
 ## Program ID
 
