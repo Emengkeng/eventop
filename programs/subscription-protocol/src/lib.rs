@@ -258,6 +258,7 @@ pub mod subscription_protocol {
         let merchant_plan = &ctx.accounts.merchant_plan;
         let wallet = &mut ctx.accounts.subscription_wallet;
         
+        // Basic validations
         require!(merchant_plan.is_active, ErrorCode::PlanInactive);
         require!(
             wallet.owner == ctx.accounts.user.key(),
@@ -266,27 +267,29 @@ pub mod subscription_protocol {
         require!(session_token.len() <= 64, ErrorCode::SessionTokenTooLong);
         require!(!session_token.is_empty(), ErrorCode::SessionTokenRequired);
 
-        let session_tracker = &ctx.accounts.session_token_tracker;
-        require!(
-            !session_tracker.is_used,
-            ErrorCode::SessionTokenAlreadyUsed
-        );
+        // This protects against re-initialization attacks
+        let tracker = &ctx.accounts.session_token_tracker;
+        if tracker.is_used {
+            return Err(ErrorCode::SessionTokenAlreadyUsed.into());
+        }
 
-        // Calculate required buffer (3 months minimum)
+        // A newly created account with init_if_needed will have default values
+        // If session_token field is not empty, someone is trying to re-init
+        if !tracker.session_token.is_empty() && tracker.session_token != session_token {
+            msg!("Security alert: Session token mismatch detected");
+            return Err(ErrorCode::SessionTokenAlreadyUsed.into());
+        }
+
+        // Calculate required buffer
         let min_buffer = merchant_plan.fee_amount.checked_mul(3).unwrap();
-        
-        let wallet_balance = if wallet.is_yield_enabled {
-            // get_yield_vault_balance(&ctx.accounts.wallet_yield_vault)?
-            ctx.accounts.wallet_token_account.amount // Simplified
-        } else {
-            ctx.accounts.wallet_token_account.amount
-        };
+        let wallet_balance = ctx.accounts.wallet_token_account.amount;
 
         require!(
             wallet_balance >= min_buffer,
             ErrorCode::InsufficientWalletBalance
         );
 
+        // Create subscription
         let subscription = &mut ctx.accounts.subscription_state;
         
         subscription.user = ctx.accounts.user.key();
@@ -303,18 +306,24 @@ pub mod subscription_protocol {
         subscription.total_paid = 0;
         subscription.payment_count = 0;
 
+        // ✅ Mark session token as used - CRITICAL for security
         let tracker = &mut ctx.accounts.session_token_tracker;
         tracker.session_token = session_token.clone();
         tracker.user = ctx.accounts.user.key();
         tracker.subscription = subscription.key();
         tracker.timestamp = Clock::get()?.unix_timestamp;
-        tracker.is_used = true;
+        tracker.is_used = true; // ✅ This prevents any future reuse
         tracker.bump = ctx.bumps.session_token_tracker;
 
-        wallet.total_subscriptions = wallet.total_subscriptions.checked_add(1).unwrap();
+        // Update counters
+        wallet.total_subscriptions = wallet.total_subscriptions
+            .checked_add(1)
+            .ok_or(ErrorCode::MathOverflow)?;
 
         let merchant_plan = &mut ctx.accounts.merchant_plan;
-        merchant_plan.total_subscribers = merchant_plan.total_subscribers.checked_add(1).unwrap();
+        merchant_plan.total_subscribers = merchant_plan.total_subscribers
+            .checked_add(1)
+            .ok_or(ErrorCode::MathOverflow)?;
 
         emit!(SubscriptionCreated {
             subscription_pda: subscription.key(),
@@ -325,7 +334,7 @@ pub mod subscription_protocol {
             session_token: session_token,
         });
 
-        msg!("Subscription created with unique session token");
+        msg!("✅ Subscription created with unique session token");
 
         Ok(())
     }
@@ -708,14 +717,15 @@ pub struct SubscribeWithWallet<'info> {
     pub subscription_state: Account<'info, SubscriptionState>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = user,
         space = 8 + SessionTokenTracker::INIT_SPACE,
         seeds = [
             b"session_token",
             session_token.as_bytes()
         ],
-        bump
+        bump,
+        constraint = !session_token_tracker.is_used @ ErrorCode::SessionTokenAlreadyUsed
     )]
     pub session_token_tracker: Account<'info, SessionTokenTracker>,
 
