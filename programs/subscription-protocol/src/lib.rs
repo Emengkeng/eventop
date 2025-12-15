@@ -243,6 +243,10 @@ pub mod subscription_protocol {
         merchant_plan.total_subscribers = 0;
         merchant_plan.bump = ctx.bumps.merchant_plan;
 
+        emit!(MerchantPlanRegistered {
+            plan_pda: merchant_plan.key()
+        });
+
         Ok(())
     }
 
@@ -1072,6 +1076,11 @@ pub struct ProtocolInitialized {
 pub struct ProtocolFeeUpdated {
     pub old_fee_bps: u16,
     pub new_fee_bps: u16,
+}
+
+#[event]
+pub struct MerchantPlanRegistered {
+    pub plan_pda: Pubkey,
 }
 
 // Error Codes
