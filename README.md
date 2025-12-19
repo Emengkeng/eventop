@@ -64,7 +64,7 @@ Smart contracts execute recurring payments on schedule—no manual intervention 
 ## Getting Started
 
 ### For Users
-1. Download the [Eventop Mobile App](https://github.com/Emengkeng/eventop-web-app) currently android apk build(testnet)
+1. Download the [Eventop Mobile App](https://expo.dev/artifacts/eas/wnBeLvhhs4fYWyper1TR7T.apk) currently android apk build(testnet)
 2. Create your subscription wallet
 3. Deposit funds and enable yield
 4. Subscribe to services
@@ -77,7 +77,7 @@ Smart contracts execute recurring payments on schedule—no manual intervention 
 5. Start accepting recurring crypto payments
 
 ### For Demo testing
-- Download the [Eventop Mobile App](https://github.com/Emengkeng/eventop-web-app)
+- Download the [Eventop Mobile App](https://expo.dev/artifacts/eas/wnBeLvhhs4fYWyper1TR7T.apk)
 - Create your subscription wallet
 - Deposit Testnet [USDC](https://faucet.circle.com/) to you wallet adress
 - visit the deposit page in the app, input the amount and click deposit(To deposit to your onchain wallet)
