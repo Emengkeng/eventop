@@ -1,0 +1,1189 @@
+// use anchor_lang::prelude::*;
+// use anchor_spl::token::{self, Token, TokenAccount, Transfer, Mint, CloseAccount};
+// // use clockwork_sdk::state::Thread;
+
+// declare_id!("GPVtSfXPiy8y4SkJrMC3VFyKUmGVhMrRbAp2NhiW1Ds2");
+
+// #[program]
+// pub mod subscription_protocol {
+//     use super::*;
+
+//     /// Initialize protocol configuration (one-time, by deployer)
+//     pub fn initialize_protocol(
+//         ctx: Context<InitializeProtocol>,
+//         protocol_fee_bps: u16, // Basis points (e.g., 250 = 2.5%)
+//     ) -> Result<()> {
+//         require!(protocol_fee_bps <= 1000, ErrorCode::FeeTooHigh); // Max 10%
+        
+//         let config = &mut ctx.accounts.protocol_config;
+//         config.authority = ctx.accounts.authority.key();
+//         config.protocol_fee_bps = protocol_fee_bps;
+//         config.treasury = ctx.accounts.treasury.key();
+//         config.bump = ctx.bumps.protocol_config;
+
+//         emit!(ProtocolInitialized {
+//             authority: config.authority,
+//             fee_bps: protocol_fee_bps,
+//             treasury: config.treasury,
+//         });
+
+//         Ok(())
+//     }
+
+//     /// Update protocol fee (admin only)
+//     pub fn update_protocol_fee(
+//         ctx: Context<UpdateProtocolFee>,
+//         new_fee_bps: u16,
+//     ) -> Result<()> {
+//         require!(new_fee_bps <= 1000, ErrorCode::FeeTooHigh); // Max 10%
+        
+//         let config = &mut ctx.accounts.protocol_config;
+//         let old_fee = config.protocol_fee_bps;
+//         config.protocol_fee_bps = new_fee_bps;
+
+//         emit!(ProtocolFeeUpdated {
+//             old_fee_bps: old_fee,
+//             new_fee_bps: new_fee_bps,
+//         });
+
+//         Ok(())
+//     }
+
+//     /// Create a Subscription Wallet (Virtual Card) for a user
+//     pub fn create_subscription_wallet(
+//         ctx: Context<CreateSubscriptionWallet>,
+//     ) -> Result<()> {
+//         let wallet = &mut ctx.accounts.subscription_wallet;
+        
+//         wallet.owner = ctx.accounts.user.key();
+//         wallet.main_token_account = ctx.accounts.main_token_account.key();
+//         wallet.mint = ctx.accounts.mint.key();
+//         wallet.total_subscriptions = 0;
+//         wallet.total_spent = 0;
+//         wallet.yield_vault = Pubkey::default(); // Set when yield enabled
+//         wallet.yield_strategy = YieldStrategy::None;
+//         wallet.is_yield_enabled = false;
+//         wallet.bump = ctx.bumps.subscription_wallet;
+
+//         emit!(SubscriptionWalletCreated {
+//             wallet_pda: wallet.key(),
+//             owner: wallet.owner,
+//             mint: wallet.mint,
+//         });
+
+//         msg!("Subscription Wallet created for user: {}", wallet.owner);
+
+//         Ok(())
+//     }
+
+//     /// Enable yield earning on idle funds in Subscription Wallet
+//     pub fn enable_yield(
+//         ctx: Context<EnableYield>,
+//         strategy: YieldStrategy,
+//     ) -> Result<()> {
+//         let wallet = &mut ctx.accounts.subscription_wallet;
+        
+//         require!(!wallet.is_yield_enabled, ErrorCode::YieldAlreadyEnabled);
+
+//         // Initialize yield vault connection based on strategy
+//         wallet.yield_vault = match strategy {
+//             YieldStrategy::MarginfiLend => ctx.accounts.yield_vault.key(),
+//             YieldStrategy::KaminoLend => ctx.accounts.yield_vault.key(),
+//             YieldStrategy::SolendPool => ctx.accounts.yield_vault.key(),
+//             YieldStrategy::DriftDeposit => ctx.accounts.yield_vault.key(),
+//             YieldStrategy::None => return Err(ErrorCode::InvalidYieldStrategy.into()),
+//         };
+
+//         wallet.yield_strategy = strategy;
+//         wallet.is_yield_enabled = true;
+
+//         emit!(YieldEnabled {
+//             wallet_pda: wallet.key(),
+//             strategy: format!("{:?}", strategy),
+//             vault: wallet.yield_vault,
+//         });
+
+//         msg!("Yield enabled with strategy: {:?}", strategy);
+
+//         Ok(())
+//     }
+
+//     /// Deposit funds into Subscription Wallet
+//     pub fn deposit_to_wallet(
+//         ctx: Context<DepositToWallet>,
+//         amount: u64,
+//     ) -> Result<()> {
+//         let wallet = &ctx.accounts.subscription_wallet;
+        
+//         require!(amount > 0, ErrorCode::InvalidDepositAmount);
+
+//         // Transfer from user's main wallet to subscription wallet
+//         let cpi_accounts = Transfer {
+//             from: ctx.accounts.user_token_account.to_account_info(),
+//             to: ctx.accounts.wallet_token_account.to_account_info(),
+//             authority: ctx.accounts.user.to_account_info(),
+//         };
+//         let cpi_program = ctx.accounts.token_program.to_account_info();
+//         let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+//         token::transfer(cpi_ctx, amount)?;
+
+//         // If yield enabled, deposit to yield protocol
+//         if wallet.is_yield_enabled {
+//             deposit_to_yield_vault(
+//                 &ctx.accounts.subscription_wallet,
+//                 &ctx.accounts.wallet_token_account,
+//                 &ctx.accounts.yield_vault_account,
+//                 &ctx.accounts.token_program,
+//                 amount,
+//             )?;
+//         }
+
+//         emit!(WalletDeposit {
+//             wallet_pda: wallet.key(),
+//             user: wallet.owner,
+//             amount: amount,
+//             deposited_to_yield: wallet.is_yield_enabled,
+//         });
+
+//         msg!("Deposited {} tokens to Subscription Wallet", amount);
+
+//         Ok(())
+//     }
+
+//     /// Withdraw idle funds from Subscription Wallet
+//     pub fn withdraw_from_wallet(
+//         ctx: Context<WithdrawFromWallet>,
+//         amount: u64,
+//     ) -> Result<()> {
+//         let wallet = &ctx.accounts.subscription_wallet;
+        
+//         require!(amount > 0, ErrorCode::InvalidWithdrawAmount);
+
+//         // Calculate available balance (total - committed to subscriptions)
+//         let committed_amount = calculate_committed_balance(
+//             &ctx.accounts.subscription_wallet,
+//         )?;
+        
+//         let available_balance = if wallet.is_yield_enabled {
+//             // Get balance from yield vault
+//             get_yield_vault_balance(&ctx.accounts.yield_vault_account)?
+//         } else {
+//             ctx.accounts.wallet_token_account.amount
+//         };
+
+//         let withdrawable = available_balance.saturating_sub(committed_amount);
+//         require!(amount <= withdrawable, ErrorCode::InsufficientAvailableBalance);
+
+//         // If yield enabled, withdraw from yield vault first
+//         if wallet.is_yield_enabled {
+//             withdraw_from_yield_vault(
+//                 &ctx.accounts.subscription_wallet,
+//                 &ctx.accounts.yield_vault_account,
+//                 &ctx.accounts.wallet_token_account,
+//                 &ctx.accounts.token_program,
+//                 amount,
+//             )?;
+//         }
+
+//         // Create PDA signer seeds
+//         let owner_key = wallet.owner;
+//         let mint_key = wallet.mint;
+//         let bump = wallet.bump;
+//         let seeds = &[
+//             b"subscription_wallet",
+//             owner_key.as_ref(),
+//             mint_key.as_ref(),
+//             &[bump],
+//         ];
+//         let signer = &[&seeds[..]];
+
+//         // Transfer from wallet to user
+//         let cpi_accounts = Transfer {
+//             from: ctx.accounts.wallet_token_account.to_account_info(),
+//             to: ctx.accounts.user_token_account.to_account_info(),
+//             authority: ctx.accounts.subscription_wallet.to_account_info(),
+//         };
+//         let cpi_program = ctx.accounts.token_program.to_account_info();
+//         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer);
+//         token::transfer(cpi_ctx, amount)?;
+
+//         emit!(WalletWithdrawal {
+//             wallet_pda: wallet.key(),
+//             user: wallet.owner,
+//             amount: amount,
+//         });
+
+//         msg!("Withdrawn {} tokens from Subscription Wallet", amount);
+
+//         Ok(())
+//     }
+
+//     /// Register merchant plan
+//     pub fn register_merchant(
+//         ctx: Context<RegisterMerchant>,
+//         plan_id: String,
+//         plan_name: String,
+//         fee_amount: u64, // Amount the subscriber pays each interval
+//         payment_interval_seconds: i64,
+//     ) -> Result<()> {
+//         require!(plan_id.len() <= 32, ErrorCode::PlanIdTooLong);
+//         require!(plan_name.len() <= 64, ErrorCode::PlanNameTooLong);
+//         require!(fee_amount > 0, ErrorCode::InvalidFeeAmount);
+//         require!(payment_interval_seconds > 0, ErrorCode::InvalidInterval);
+
+//         let merchant_plan = &mut ctx.accounts.merchant_plan;
+        
+//         merchant_plan.merchant = ctx.accounts.merchant.key();
+//         merchant_plan.mint = ctx.accounts.mint.key();
+//         merchant_plan.plan_id = plan_id;
+//         merchant_plan.plan_name = plan_name;
+//         merchant_plan.fee_amount = fee_amount;
+//         merchant_plan.payment_interval = payment_interval_seconds;
+//         merchant_plan.is_active = true;
+//         merchant_plan.total_subscribers = 0;
+//         merchant_plan.bump = ctx.bumps.merchant_plan;
+
+//         emit!(MerchantPlanRegistered {
+//             plan_pda: merchant_plan.key()
+//         });
+
+//         Ok(())
+//     }
+
+//     /// Subscribe using Subscription Wallet (New approach!)
+//     pub fn subscribe_with_wallet(
+//         ctx: Context<SubscribeWithWallet>,
+//         session_token: String,
+//     ) -> Result<()> {
+//         let merchant_plan = &ctx.accounts.merchant_plan;
+//         let wallet = &mut ctx.accounts.subscription_wallet;
+        
+//         // Basic validations
+//         require!(merchant_plan.is_active, ErrorCode::PlanInactive);
+//         require!(
+//             wallet.owner == ctx.accounts.user.key(),
+//             ErrorCode::UnauthorizedWalletAccess
+//         );
+//         require!(session_token.len() <= 64, ErrorCode::SessionTokenTooLong);
+//         require!(!session_token.is_empty(), ErrorCode::SessionTokenRequired);
+
+//         // This protects against re-initialization attacks
+//         let tracker = &ctx.accounts.session_token_tracker;
+//         if tracker.is_used {
+//             return Err(ErrorCode::SessionTokenAlreadyUsed.into());
+//         }
+
+//         // A newly created account with init_if_needed will have default values
+//         // If session_token field is not empty, someone is trying to re-init
+//         if !tracker.session_token.is_empty() && tracker.session_token != session_token {
+//             msg!("Security alert: Session token mismatch detected");
+//             return Err(ErrorCode::SessionTokenAlreadyUsed.into());
+//         }
+
+//         // Calculate required buffer
+//         let min_buffer = merchant_plan.fee_amount.checked_mul(3).unwrap();
+//         let wallet_balance = ctx.accounts.wallet_token_account.amount;
+
+//         require!(
+//             wallet_balance >= min_buffer,
+//             ErrorCode::InsufficientWalletBalance
+//         );
+
+//         // Create subscription
+//         let subscription = &mut ctx.accounts.subscription_state;
+        
+//         subscription.user = ctx.accounts.user.key();
+//         subscription.subscription_wallet = wallet.key();
+//         subscription.merchant = merchant_plan.merchant;
+//         subscription.mint = merchant_plan.mint;
+//         subscription.merchant_plan = ctx.accounts.merchant_plan.key();
+//         subscription.fee_amount = merchant_plan.fee_amount;
+//         subscription.payment_interval = merchant_plan.payment_interval;
+//         subscription.last_payment_timestamp = Clock::get()?.unix_timestamp;
+//         subscription.session_token = session_token.clone();
+//         subscription.bump = ctx.bumps.subscription_state;
+//         subscription.is_active = true;
+//         subscription.total_paid = 0;
+//         subscription.payment_count = 0;
+
+//         // ✅ Mark session token as used - CRITICAL for security
+//         let tracker = &mut ctx.accounts.session_token_tracker;
+//         tracker.session_token = session_token.clone();
+//         tracker.user = ctx.accounts.user.key();
+//         tracker.subscription = subscription.key();
+//         tracker.timestamp = Clock::get()?.unix_timestamp;
+//         tracker.is_used = true; // ✅ This prevents any future reuse
+//         tracker.bump = ctx.bumps.session_token_tracker;
+
+//         // Update counters
+//         wallet.total_subscriptions = wallet.total_subscriptions
+//             .checked_add(1)
+//             .ok_or(ErrorCode::MathOverflow)?;
+
+//         let merchant_plan = &mut ctx.accounts.merchant_plan;
+//         merchant_plan.total_subscribers = merchant_plan.total_subscribers
+//             .checked_add(1)
+//             .ok_or(ErrorCode::MathOverflow)?;
+
+//         emit!(SubscriptionCreated {
+//             subscription_pda: subscription.key(),
+//             user: subscription.user,
+//             wallet: subscription.subscription_wallet,
+//             merchant: subscription.merchant,
+//             plan_id: merchant_plan.plan_id.clone(),
+//             session_token: session_token,
+//         });
+
+//         msg!("✅ Subscription created with unique session token");
+
+//         Ok(())
+//     }
+
+//     /// Execute payment from Subscription Wallet
+//     pub fn execute_payment_from_wallet(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
+//         let subscription = &mut ctx.accounts.subscription_state;
+//         let merchant_plan = &ctx.accounts.merchant_plan;
+//         let wallet = &mut ctx.accounts.subscription_wallet;
+//         let protocol_config = &ctx.accounts.protocol_config;
+//         let current_time = Clock::get()?.unix_timestamp;
+        
+//         // VALIDATION
+//         require!(subscription.is_active, ErrorCode::SubscriptionInactive);
+        
+//         let time_since_last = current_time - subscription.last_payment_timestamp;
+//         require!(
+//             time_since_last >= subscription.payment_interval,
+//             ErrorCode::PaymentTooEarly
+//         );
+
+//         // Calculate fees with protocol fee
+//         let base_amount = subscription.fee_amount;
+//         let protocol_fee = (base_amount as u128)
+//             .checked_mul(protocol_config.protocol_fee_bps as u128)
+//             .unwrap()
+//             .checked_div(10_000)
+//             .unwrap() as u64;
+        
+//         let merchant_receives = base_amount.checked_sub(protocol_fee)
+//             .ok_or(ErrorCode::MathOverflow)?;
+        
+//         let total_charge = base_amount;
+
+//         let available_balance = ctx.accounts.wallet_token_account.amount;
+//         require!(available_balance >= total_charge, ErrorCode::InsufficientFunds);
+
+//         // Create PDA signer
+//         let owner_key = wallet.owner;
+//         let mint_key = wallet.mint;
+//         let bump = wallet.bump;
+//         let seeds = &[
+//             b"subscription_wallet",
+//             owner_key.as_ref(),
+//             mint_key.as_ref(),
+//             &[bump],
+//         ];
+//         let signer_seeds = &[&seeds[..]];
+
+//         // Transfer to merchant
+//         if merchant_receives > 0 {
+//             let transfer_merchant = Transfer {
+//                 from: ctx.accounts.wallet_token_account.to_account_info(),
+//                 to: ctx.accounts.merchant_token_account.to_account_info(),
+//                 authority: wallet.to_account_info(),
+//             };
+            
+//             let cpi_ctx = CpiContext::new_with_signer(
+//                 ctx.accounts.token_program.to_account_info(),
+//                 transfer_merchant,
+//                 signer_seeds,
+//             );
+            
+//             token::transfer(cpi_ctx, merchant_receives)?;
+//         }
+
+//         // Transfer protocol fee to treasury
+//         if protocol_fee > 0 {
+//             let transfer_protocol = Transfer {
+//                 from: ctx.accounts.wallet_token_account.to_account_info(),
+//                 to: ctx.accounts.protocol_treasury.to_account_info(),
+//                 authority: wallet.to_account_info(),
+//             };
+            
+//             let cpi_ctx = CpiContext::new_with_signer(
+//                 ctx.accounts.token_program.to_account_info(),
+//                 transfer_protocol,
+//                 signer_seeds,
+//             );
+            
+//             token::transfer(cpi_ctx, protocol_fee)?;
+//         }
+
+//         // STATE UPDATES
+//         subscription.last_payment_timestamp = current_time;
+//         subscription.total_paid = subscription.total_paid
+//             .checked_add(total_charge)
+//             .ok_or(ErrorCode::MathOverflow)?;
+//         subscription.payment_count = subscription.payment_count
+//             .checked_add(1)
+//             .ok_or(ErrorCode::MathOverflow)?;
+
+//         wallet.total_spent = wallet.total_spent
+//             .checked_add(total_charge)
+//             .ok_or(ErrorCode::MathOverflow)?;
+
+//         emit!(PaymentExecuted {
+//             subscription_pda: subscription.key(),
+//             wallet_pda: wallet.key(),
+//             user: subscription.user,
+//             merchant: subscription.merchant,
+//             amount: total_charge,
+//             protocol_fee: protocol_fee,
+//             merchant_received: merchant_receives,
+//             payment_number: subscription.payment_count,
+//         });
+
+//         msg!("✅ Payment #{}: {} (merchant: {}, protocol: {})", 
+//             subscription.payment_count, total_charge, merchant_receives, protocol_fee);
+
+//         Ok(())
+//     }
+
+//     /// Cancel subscription (no refund needed, funds stay in wallet)
+//     pub fn cancel_subscription_wallet(ctx: Context<CancelSubscriptionWallet>) -> Result<()> {
+//         let subscription = &ctx.accounts.subscription_state;
+//         let wallet = &mut ctx.accounts.subscription_wallet;
+//         let merchant_plan = &mut ctx.accounts.merchant_plan;
+        
+//         require!(subscription.is_active, ErrorCode::SubscriptionInactive);
+
+//         // Decrement counters
+//         wallet.total_subscriptions = wallet.total_subscriptions.saturating_sub(1);
+//         merchant_plan.total_subscribers = merchant_plan.total_subscribers.saturating_sub(1);
+
+//         emit!(SubscriptionCancelled {
+//             subscription_pda: subscription.key(),
+//             wallet_pda: wallet.key(),
+//             user: subscription.user,
+//             merchant: subscription.merchant,
+//             payments_made: subscription.payment_count,
+//         });
+
+//         msg!("Subscription cancelled. Funds remain in Subscription Wallet.");
+
+//         Ok(())
+//     }
+
+//     /// Claim accumulated yield rewards
+//     pub fn claim_yield_rewards(ctx: Context<ClaimYieldRewards>) -> Result<()> {
+//         let wallet = &ctx.accounts.subscription_wallet;
+        
+//         require!(wallet.is_yield_enabled, ErrorCode::YieldNotEnabled);
+
+//         // Get current yield balance
+//         let total_with_yield = get_yield_vault_balance(&ctx.accounts.yield_vault_account)?;
+//         let original_deposits = ctx.accounts.wallet_token_account.amount;
+//         let yield_earned = total_with_yield.saturating_sub(original_deposits);
+
+//         require!(yield_earned > 0, ErrorCode::NoYieldToClaim);
+
+//         // Withdraw only yield earnings to user's main wallet
+//         withdraw_from_yield_vault(
+//             &ctx.accounts.subscription_wallet,
+//             &ctx.accounts.yield_vault_account,
+//             &ctx.accounts.user_token_account,
+//             &ctx.accounts.token_program,
+//             yield_earned,
+//         )?;
+
+//         emit!(YieldClaimed {
+//             wallet_pda: wallet.key(),
+//             user: wallet.owner,
+//             amount: yield_earned,
+//         });
+
+//         msg!("Claimed {} yield rewards", yield_earned);
+
+//         Ok(())
+//     }
+// }
+
+// // Helper functions for yield integration
+
+// fn deposit_to_yield_vault(
+//     _wallet: &Account<SubscriptionWallet>,
+//     _from: &Account<TokenAccount>,
+//     _vault: &AccountInfo,
+//     _token_program: &Program<Token>,
+//     _amount: u64,
+// ) -> Result<()> {
+//     // TODO: Integrate with actual yield protocol
+//     // This is a placeholder for Marginfi/Kamino/Solend CPI
+//     msg!("Depositing to yield vault (placeholder)");
+//     Ok(())
+// }
+
+// fn withdraw_from_yield_vault(
+//     _wallet: &Account<SubscriptionWallet>,
+//     _vault: &AccountInfo,
+//     _to: &Account<TokenAccount>,
+//     _token_program: &Program<Token>,
+//     _amount: u64,
+// ) -> Result<()> {
+//     // TODO: Integrate with actual yield protocol
+//     msg!("Withdrawing from yield vault (placeholder)");
+//     Ok(())
+// }
+
+// fn get_yield_vault_balance(_vault: &AccountInfo) -> Result<u64> {
+//     // TODO: Query actual yield protocol balance
+//     Ok(0) // Placeholder
+// }
+
+// fn calculate_committed_balance(_wallet: &Account<SubscriptionWallet>) -> Result<u64> {
+//     // TODO: Query all active subscriptions and calculate 3-month buffer requirement
+//     Ok(0) // Placeholder
+// }
+
+// // Account Structures
+
+// #[derive(Accounts)]
+// pub struct CreateSubscriptionWallet<'info> {
+//     #[account(
+//         init,
+//         payer = user,
+//         space = 8 + SubscriptionWallet::INIT_SPACE,
+//         seeds = [
+//             b"subscription_wallet",
+//             user.key().as_ref(),
+//             mint.key().as_ref()
+//         ],
+//         bump
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     // Removed init constraint - this should be created separately or already exist
+//     // #[account(
+//     //     init,
+//     //     payer = user,
+//     //     token::mint = mint,
+//     //     token::authority = subscription_wallet,
+//     // )]
+//     #[account(
+//         mut,
+//         constraint = main_token_account.owner == subscription_wallet.key(),
+//         constraint = main_token_account.mint == mint.key()
+//     )]
+//     pub main_token_account: Account<'info, TokenAccount>,
+
+//     #[account(mut)]
+//     pub user: Signer<'info>,
+
+//     pub mint: Account<'info, Mint>,
+//     pub token_program: Program<'info, Token>,
+//     pub system_program: Program<'info, System>,
+//     pub rent: Sysvar<'info, Rent>,
+// }
+
+// #[derive(Accounts)]
+// pub struct EnableYield<'info> {
+//     #[account(
+//         mut,
+//         seeds = [
+//             b"subscription_wallet",
+//             subscription_wallet.owner.as_ref(),
+//             subscription_wallet.mint.as_ref()
+//         ],
+//         bump = subscription_wallet.bump,
+//         has_one = owner @ ErrorCode::UnauthorizedWalletAccess
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     pub owner: Signer<'info>,
+
+//     /// CHECK: Yield vault account (protocol-specific)
+//     pub yield_vault: AccountInfo<'info>,
+// }
+
+// #[derive(Accounts)]
+// pub struct DepositToWallet<'info> {
+//     #[account(
+//         seeds = [
+//             b"subscription_wallet",
+//             subscription_wallet.owner.as_ref(),
+//             subscription_wallet.mint.as_ref()
+//         ],
+//         bump = subscription_wallet.bump,
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     #[account(mut)]
+//     pub user: Signer<'info>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_wallet.mint,
+//         token::authority = user
+//     )]
+//     pub user_token_account: Account<'info, TokenAccount>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_wallet.mint,
+//         token::authority = subscription_wallet
+//     )]
+//     pub wallet_token_account: Account<'info, TokenAccount>,
+
+//     /// CHECK: Yield vault (if enabled)
+//     pub yield_vault_account: AccountInfo<'info>,
+
+//     pub token_program: Program<'info, Token>,
+// }
+
+// #[derive(Accounts)]
+// pub struct WithdrawFromWallet<'info> {
+//     #[account(
+//         seeds = [
+//             b"subscription_wallet",
+//             subscription_wallet.owner.as_ref(),
+//             subscription_wallet.mint.as_ref()
+//         ],
+//         bump = subscription_wallet.bump,
+//         has_one = owner @ ErrorCode::UnauthorizedWalletAccess
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     #[account(mut)]
+//     pub owner: Signer<'info>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_wallet.mint,
+//         token::authority = owner
+//     )]
+//     pub user_token_account: Account<'info, TokenAccount>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_wallet.mint,
+//         token::authority = subscription_wallet
+//     )]
+//     pub wallet_token_account: Account<'info, TokenAccount>,
+
+//     /// CHECK: Yield vault (if enabled)
+//     pub yield_vault_account: AccountInfo<'info>,
+
+//     pub token_program: Program<'info, Token>,
+// }
+
+// #[derive(Accounts)]
+// #[instruction(plan_id: String)]
+// pub struct RegisterMerchant<'info> {
+//     #[account(
+//         init,
+//         payer = merchant,
+//         space = 8 + MerchantPlan::INIT_SPACE,
+//         seeds = [
+//             b"merchant_plan",
+//             merchant.key().as_ref(),
+//             mint.key().as_ref(),
+//             plan_id.as_bytes()
+//         ],
+//         bump
+//     )]
+//     pub merchant_plan: Account<'info, MerchantPlan>,
+
+//     #[account(mut)]
+//     pub merchant: Signer<'info>,
+
+//     pub mint: Account<'info, Mint>,
+//     pub system_program: Program<'info, System>,
+// }
+
+// #[derive(Accounts)]
+// #[instruction(session_token: String)]
+// pub struct SubscribeWithWallet<'info> {
+//     #[account(
+//         init,
+//         payer = user,
+//         space = 8 + SubscriptionState::INIT_SPACE,
+//         seeds = [
+//             b"subscription",
+//             user.key().as_ref(),
+//             merchant_plan.merchant.as_ref(),
+//             merchant_plan.mint.as_ref()
+//         ],
+//         bump
+//     )]
+//     pub subscription_state: Account<'info, SubscriptionState>,
+
+//     #[account(
+//         init_if_needed,
+//         payer = user,
+//         space = 8 + SessionTokenTracker::INIT_SPACE,
+//         seeds = [
+//             b"session_token",
+//             session_token.as_bytes()
+//         ],
+//         bump,
+//         constraint = !session_token_tracker.is_used @ ErrorCode::SessionTokenAlreadyUsed
+//     )]
+//     pub session_token_tracker: Account<'info, SessionTokenTracker>,
+
+//     #[account(
+//         mut,
+//         seeds = [
+//             b"subscription_wallet",
+//             subscription_wallet.owner.as_ref(),
+//             subscription_wallet.mint.as_ref()
+//         ],
+//         bump = subscription_wallet.bump,
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     #[account(
+//         mut,
+//         constraint = merchant_plan.is_active @ ErrorCode::PlanInactive
+//     )]
+//     pub merchant_plan: Account<'info, MerchantPlan>,
+
+//     #[account(mut)]
+//     pub user: Signer<'info>,
+
+//     #[account(
+//         token::mint = subscription_wallet.mint,
+//         token::authority = subscription_wallet
+//     )]
+//     pub wallet_token_account: Account<'info, TokenAccount>,
+
+//     /// CHECK: Yield vault (if yield enabled)
+//     pub wallet_yield_vault: AccountInfo<'info>,
+
+//     pub system_program: Program<'info, System>,
+// }
+
+// #[derive(Accounts)]
+// pub struct ExecutePaymentFromWallet<'info> {
+//     #[account(
+//         mut,
+//         seeds = [
+//             b"subscription",
+//             subscription_state.user.as_ref(),
+//             subscription_state.merchant.as_ref(),
+//             subscription_state.mint.as_ref()
+//         ],
+//         bump = subscription_state.bump,
+//         constraint = subscription_state.is_active @ ErrorCode::SubscriptionInactive,
+//     )]
+//     pub subscription_state: Account<'info, SubscriptionState>,
+
+//     #[account(
+//         mut,
+//         seeds = [
+//             b"subscription_wallet",
+//             subscription_wallet.owner.as_ref(),
+//             subscription_wallet.mint.as_ref()
+//         ],
+//         bump = subscription_wallet.bump,
+//         constraint = subscription_wallet.key() == subscription_state.subscription_wallet @ ErrorCode::InvalidSubscriptionWallet
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     #[account(
+//         constraint = merchant_plan.key() == subscription_state.merchant_plan @ ErrorCode::InvalidMerchantPlan,
+//         constraint = merchant_plan.is_active @ ErrorCode::PlanInactive,
+//         constraint = merchant_plan.merchant == subscription_state.merchant @ ErrorCode::MerchantMismatch,
+//     )]
+//     pub merchant_plan: Account<'info, MerchantPlan>,
+
+//     #[account(
+//         seeds = [b"protocol_config"],
+//         bump = protocol_config.bump,
+//     )]
+//     pub protocol_config: Account<'info, ProtocolConfig>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_wallet.mint,
+//         token::authority = subscription_wallet
+//     )]
+//     pub wallet_token_account: Account<'info, TokenAccount>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_state.mint,
+//         constraint = merchant_token_account.owner == merchant_plan.merchant @ ErrorCode::InvalidMerchantAccount
+//     )]
+//     pub merchant_token_account: Account<'info, TokenAccount>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_state.mint,
+//         constraint = protocol_treasury.owner == protocol_config.treasury @ ErrorCode::InvalidTreasuryAccount
+//     )]
+//     pub protocol_treasury: Account<'info, TokenAccount>,
+
+//     pub token_program: Program<'info, Token>,
+// }
+
+// #[derive(Accounts)]
+// pub struct CancelSubscriptionWallet<'info> {
+//     #[account(
+//         mut,
+//         seeds = [
+//             b"subscription",
+//             subscription_state.user.as_ref(),
+//             subscription_state.merchant.as_ref(),
+//             subscription_state.mint.as_ref()
+//         ],
+//         bump = subscription_state.bump,
+//         has_one = user @ ErrorCode::UnauthorizedCancellation,
+//         close = user
+//     )]
+//     pub subscription_state: Account<'info, SubscriptionState>,
+
+//     #[account(
+//         mut,
+//         constraint = subscription_wallet.key() == subscription_state.subscription_wallet
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     #[account(mut)]
+//     pub merchant_plan: Account<'info, MerchantPlan>,
+
+//     #[account(mut)]
+//     pub user: Signer<'info>,
+// }
+
+// #[derive(Accounts)]
+// pub struct ClaimYieldRewards<'info> {
+//     #[account(
+//         seeds = [
+//             b"subscription_wallet",
+//             subscription_wallet.owner.as_ref(),
+//             subscription_wallet.mint.as_ref()
+//         ],
+//         bump = subscription_wallet.bump,
+//         has_one = owner @ ErrorCode::UnauthorizedWalletAccess
+//     )]
+//     pub subscription_wallet: Account<'info, SubscriptionWallet>,
+
+//     #[account(mut)]
+//     pub owner: Signer<'info>,
+
+//     #[account(
+//         mut,
+//         token::mint = subscription_wallet.mint,
+//         token::authority = owner
+//     )]
+//     pub user_token_account: Account<'info, TokenAccount>,
+
+//     #[account(
+//         token::mint = subscription_wallet.mint,
+//         token::authority = subscription_wallet
+//     )]
+//     pub wallet_token_account: Account<'info, TokenAccount>,
+
+
+//     /// CHECK: Yield vault
+//     pub yield_vault_account: AccountInfo<'info>,
+
+//     pub token_program: Program<'info, Token>,
+// }
+
+// #[derive(Accounts)]
+// pub struct InitializeProtocol<'info> {
+//     #[account(
+//         init,
+//         payer = authority,
+//         space = 8 + ProtocolConfig::INIT_SPACE,
+//         seeds = [b"protocol_config"],
+//         bump
+//     )]
+//     pub protocol_config: Account<'info, ProtocolConfig>,
+
+//     #[account(mut)]
+//     pub authority: Signer<'info>,
+
+//     /// CHECK: Treasury account for protocol fees
+//     pub treasury: AccountInfo<'info>,
+
+//     pub system_program: Program<'info, System>,
+// }
+
+// #[derive(Accounts)]
+// pub struct UpdateProtocolFee<'info> {
+//     #[account(
+//         mut,
+//         seeds = [b"protocol_config"],
+//         bump = protocol_config.bump,
+//         has_one = authority @ ErrorCode::UnauthorizedProtocolUpdate
+//     )]
+//     pub protocol_config: Account<'info, ProtocolConfig>,
+
+//     pub authority: Signer<'info>,
+// }
+
+// // State Accounts
+
+// #[account]
+// #[derive(InitSpace)]
+// pub struct SubscriptionWallet {
+//     pub owner: Pubkey,
+//     pub main_token_account: Pubkey,
+//     pub mint: Pubkey,
+//     pub yield_vault: Pubkey,
+//     pub yield_strategy: YieldStrategy,
+//     pub is_yield_enabled: bool,
+//     pub total_subscriptions: u32,
+//     pub total_spent: u64,
+//     pub bump: u8,
+// }
+
+// #[account]
+// #[derive(InitSpace)]
+// pub struct MerchantPlan {
+//     pub merchant: Pubkey,
+//     pub mint: Pubkey,
+//     #[max_len(32)]
+//     pub plan_id: String,
+//     #[max_len(64)]
+//     pub plan_name: String,
+//     pub fee_amount: u64,
+//     pub payment_interval: i64,
+//     pub is_active: bool,
+//     pub total_subscribers: u32,
+//     pub bump: u8,
+// }
+
+// #[account]
+// #[derive(InitSpace)]
+// pub struct SubscriptionState {
+//     pub user: Pubkey,
+//     pub subscription_wallet: Pubkey, // KEY CHANGE: Links to wallet instead of escrow
+//     pub merchant: Pubkey,
+//     pub mint: Pubkey,
+//     pub merchant_plan: Pubkey,
+//     pub fee_amount: u64,
+//     pub payment_interval: i64,
+//     pub last_payment_timestamp: i64,
+//     pub total_paid: u64,
+//     pub payment_count: u32,
+//     pub is_active: bool,
+//     #[max_len(64)]
+//     pub session_token: String,
+//     pub bump: u8,
+// }
+
+// #[account]
+// #[derive(InitSpace)]
+// pub struct SessionTokenTracker {
+//     #[max_len(64)]
+//     pub session_token: String,
+//     pub user: Pubkey,
+//     pub subscription: Pubkey,
+//     pub timestamp: i64,
+//     pub is_used: bool,
+//     pub bump: u8,
+// }
+
+// #[account]
+// #[derive(InitSpace)]
+// pub struct ProtocolConfig {
+//     pub authority: Pubkey,
+//     pub treasury: Pubkey,
+//     pub protocol_fee_bps: u16, // Basis points (100 = 1%, 250 = 2.5%)
+//     pub bump: u8,
+// }
+
+// // Enums
+
+// #[derive(Debug, AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace)]
+// pub enum YieldStrategy {
+//     None,
+//     MarginfiLend,    // Marginfi USDC lending
+//     KaminoLend,      // Kamino Liquidity
+//     SolendPool,      // Solend lending pool
+//     DriftDeposit,    // Drift Protocol deposits
+// }
+
+// // Events
+
+// #[event]
+// pub struct SubscriptionWalletCreated {
+//     pub wallet_pda: Pubkey,
+//     pub owner: Pubkey,
+//     pub mint: Pubkey,
+// }
+
+// #[event]
+// pub struct YieldEnabled {
+//     pub wallet_pda: Pubkey,
+//     pub strategy: String,
+//     pub vault: Pubkey,
+// }
+
+// #[event]
+// pub struct WalletDeposit {
+//     pub wallet_pda: Pubkey,
+//     pub user: Pubkey,
+//     pub amount: u64,
+//     pub deposited_to_yield: bool,
+// }
+
+// #[event]
+// pub struct WalletWithdrawal {
+//     pub wallet_pda: Pubkey,
+//     pub user: Pubkey,
+//     pub amount: u64,
+// }
+
+// #[event]
+// pub struct SubscriptionCreated {
+//     pub subscription_pda: Pubkey,
+//     pub user: Pubkey,
+//     pub wallet: Pubkey,
+//     pub merchant: Pubkey,
+//     pub plan_id: String,
+//     pub session_token: String,
+// }
+
+// #[event]
+// pub struct PaymentExecuted {
+//     pub subscription_pda: Pubkey,
+//     pub wallet_pda: Pubkey,
+//     pub user: Pubkey,
+//     pub merchant: Pubkey,
+//     pub amount: u64,
+//     pub protocol_fee: u64,
+//     pub merchant_received: u64,
+//     pub payment_number: u32,
+// }
+
+// #[event]
+// pub struct SubscriptionCancelled {
+//     pub subscription_pda: Pubkey,
+//     pub wallet_pda: Pubkey,
+//     pub user: Pubkey,
+//     pub merchant: Pubkey,
+//     pub payments_made: u32,
+// }
+
+// #[event]
+// pub struct YieldClaimed {
+//     pub wallet_pda: Pubkey,
+//     pub user: Pubkey,
+//     pub amount: u64,
+// }
+
+// #[event]
+// pub struct ProtocolInitialized {
+//     pub authority: Pubkey,
+//     pub fee_bps: u16,
+//     pub treasury: Pubkey,
+// }
+
+// #[event]
+// pub struct ProtocolFeeUpdated {
+//     pub old_fee_bps: u16,
+//     pub new_fee_bps: u16,
+// }
+
+// #[event]
+// pub struct MerchantPlanRegistered {
+//     pub plan_pda: Pubkey,
+// }
+
+// // Error Codes
+
+// #[error_code]
+// pub enum ErrorCode {
+//     #[msg("Subscription is not active")]
+//     SubscriptionInactive,
+    
+//     #[msg("Payment interval has not elapsed yet")]
+//     PaymentTooEarly,
+    
+//     #[msg("Plan ID exceeds maximum length")]
+//     PlanIdTooLong,
+
+//     #[msg("Plan name exceeds maximum length")]
+//     PlanNameTooLong,
+
+//     #[msg("Fee amount must be greater than zero")]
+//     InvalidFeeAmount,
+
+//     #[msg("Payment interval must be greater than zero")]
+//     InvalidInterval,
+
+//     #[msg("Merchant plan is not active")]
+//     PlanInactive,
+
+//     #[msg("Invalid merchant plan reference")]
+//     InvalidMerchantPlan,
+
+//     #[msg("Caller is not authorized to execute payment")]
+//     UnauthorizedCaller,
+
+//     #[msg("Only the subscription user can cancel")]
+//     UnauthorizedCancellation,
+
+//     #[msg("Unauthorized access to subscription wallet")]
+//     UnauthorizedWalletAccess,
+
+//     #[msg("Invalid deposit amount")]
+//     InvalidDepositAmount,
+
+//     #[msg("Invalid withdrawal amount")]
+//     InvalidWithdrawAmount,
+
+//     #[msg("Insufficient available balance in wallet")]
+//     InsufficientAvailableBalance,
+
+//     #[msg("Insufficient wallet balance for subscription")]
+//     InsufficientWalletBalance,
+
+//     #[msg("Invalid subscription wallet reference")]
+//     InvalidSubscriptionWallet,
+
+//     #[msg("Yield is already enabled")]
+//     YieldAlreadyEnabled,
+
+//     #[msg("Yield is not enabled")]
+//     YieldNotEnabled,
+
+//     #[msg("Invalid yield strategy")]
+//     InvalidYieldStrategy,
+
+//     #[msg("No yield rewards to claim")]
+//     NoYieldToClaim,
+    
+//     #[msg("Insufficient funds in wallet")]
+//     InsufficientFunds,
+    
+//     #[msg("Invalid merchant token account")]
+//     InvalidMerchantAccount,
+    
+//     #[msg("Math operation overflow")]
+//     MathOverflow,
+
+//     #[msg("Merchant mismatch: subscription merchant does not match merchant plan")]
+//     MerchantMismatch,
+
+//     #[msg("Protocol fee exceeds maximum allowed (10%)")]
+//     FeeTooHigh,
+
+//     #[msg("Unauthorized protocol configuration update")]
+//     UnauthorizedProtocolUpdate,
+
+//     #[msg("Invalid treasury account")]
+//     InvalidTreasuryAccount,
+
+//     #[msg("Session token exceeds maximum length (64 characters)")]
+//     SessionTokenTooLong,
+
+//     #[msg("Session token is required")]
+//     SessionTokenRequired,
+
+//     #[msg("Session token already used")]
+//     SessionTokenAlreadyUsed,
+// }
