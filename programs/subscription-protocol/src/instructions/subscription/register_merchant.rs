@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::Mint;
-use crate::{MerchantPlan, MerchantPlanRegistered, ErrorCode};
+use crate::{MerchantPlan, MerchantPlanRegistered, ErrorCodes};
 
 #[derive(Accounts)]
 #[instruction(plan_id: String)]
@@ -33,10 +33,10 @@ pub fn handler(
     fee_amount: u64,
     payment_interval_seconds: i64,
 ) -> Result<()> {
-    require!(plan_id.len() <= 32, ErrorCode::PlanIdTooLong);
-    require!(plan_name.len() <= 64, ErrorCode::PlanNameTooLong);
-    require!(fee_amount > 0, ErrorCode::InvalidFeeAmount);
-    require!(payment_interval_seconds > 0, ErrorCode::InvalidInterval);
+    require!(plan_id.len() <= 32, ErrorCodes::PlanIdTooLong);
+    require!(plan_name.len() <= 64, ErrorCodes::PlanNameTooLong);
+    require!(fee_amount > 0, ErrorCodes::InvalidFeeAmount);
+    require!(payment_interval_seconds > 0, ErrorCodes::InvalidInterval);
 
     let merchant_plan = &mut ctx.accounts.merchant_plan;
     

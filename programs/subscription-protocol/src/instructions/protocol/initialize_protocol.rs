@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::Token;
-use crate::{ProtocolConfig, ProtocolInitialized, ErrorCode};
+use crate::{ProtocolConfig, ProtocolInitialized, ErrorCodes};
 
 #[derive(Accounts)]
 pub struct InitializeProtocol {
@@ -26,7 +26,7 @@ pub fn handler(
     ctx: Context,
     protocol_fee_bps: u16,
 ) -> Result {
-    require!(protocol_fee_bps <= 1000, ErrorCode::FeeTooHigh);
+    require!(protocol_fee_bps <= 1000, ErrorCodes::FeeTooHigh);
     
     let config = &mut ctx.accounts.protocol_config;
     config.authority = ctx.accounts.authority.key();

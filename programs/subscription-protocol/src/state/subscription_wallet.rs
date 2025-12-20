@@ -11,5 +11,6 @@ pub struct SubscriptionWallet {
     pub is_yield_enabled: bool,
     pub total_subscriptions: u32,
     pub total_spent: u64,
+    pub yield_shares: u64,
     pub bump: u8,
 }

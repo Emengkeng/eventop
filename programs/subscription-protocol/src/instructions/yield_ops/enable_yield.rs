@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::{SubscriptionWallet, YieldVault, YieldEnabled, ErrorCode};
+use crate::{SubscriptionWallet, YieldVault, YieldEnabled, ErrorCodes};
 use crate::utils::{
     calculate_buffer_amount,
     calculate_shares_for_deposit,
@@ -17,7 +17,7 @@ pub struct EnableYield<'info> {
             subscription_wallet.mint.as_ref()
         ],
         bump = subscription_wallet.bump,
-        has_one = owner @ ErrorCode::UnauthorizedWalletAccess
+        has_one = owner @ ErrorCodes::UnauthorizedWalletAccess
     )]
     pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
@@ -55,19 +55,19 @@ pub fn handler(ctx: Context<EnableYield>, amount: u64) -> Result<()> {
     let wallet = &mut ctx.accounts.subscription_wallet;
     let vault = &mut ctx.accounts.yield_vault;
     
-    require!(!wallet.is_yield_enabled, ErrorCode::YieldAlreadyEnabled);
-    require!(amount > 0, ErrorCode::InvalidDepositAmount);
+    require!(!wallet.is_yield_enabled, ErrorCodes::YieldAlreadyEnabled);
+    require!(amount > 0, ErrorCodes::InvalidDepositAmount);
     require!(
         ctx.accounts.wallet_token_account.amount >= amount,
-        ErrorCode::InsufficientWalletBalance
+        ErrorCodes::InsufficientWalletBalance
     );
 
     // Calculate how much goes to yield vs buffer
     let buffer_amount = calculate_buffer_amount(amount, vault.target_buffer_bps)?;
     let yield_amount = amount.checked_sub(buffer_amount)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
-    require!(yield_amount > 0, ErrorCode::YieldAmountTooSmall);
+    require!(yield_amount > 0, ErrorCodes::YieldAmountTooSmall);
 
     // Calculate shares to issue (1:1 initially, will accrue yield over time)
     let shares_to_issue = if vault.total_shares_issued == 0 {
@@ -113,10 +113,10 @@ pub fn handler(ctx: Context<EnableYield>, amount: u64) -> Result<()> {
     
     vault.total_shares_issued = vault.total_shares_issued
         .checked_add(shares_to_issue)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     vault.total_usdc_deposited = vault.total_usdc_deposited
         .checked_add(yield_amount)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     emit!(YieldEnabled {
         wallet_pda: wallet.key(),

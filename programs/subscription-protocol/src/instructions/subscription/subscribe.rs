@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::TokenAccount;
 use crate::{
     SubscriptionState, SubscriptionWallet, MerchantPlan,
-    SessionTokenTracker, SubscriptionCreated, ErrorCode
+    SessionTokenTracker, SubscriptionCreated, ErrorCodes
 };
 
 #[derive(Accounts)]
@@ -31,7 +31,7 @@ pub struct SubscribeWithWallet<'info> {
             session_token.as_bytes()
         ],
         bump,
-        constraint = !session_token_tracker.is_used @ ErrorCode::SessionTokenAlreadyUsed
+        constraint = !session_token_tracker.is_used @ ErrorCodes::SessionTokenAlreadyUsed
     )]
     pub session_token_tracker: Account<'info, SessionTokenTracker>,
 
@@ -48,7 +48,7 @@ pub struct SubscribeWithWallet<'info> {
 
     #[account(
         mut,
-        constraint = merchant_plan.is_active @ ErrorCode::PlanInactive
+        constraint = merchant_plan.is_active @ ErrorCodes::PlanInactive
     )]
     pub merchant_plan: Account<'info, MerchantPlan>,
 
@@ -71,22 +71,22 @@ pub fn handler(
     let merchant_plan = &ctx.accounts.merchant_plan;
     let wallet = &mut ctx.accounts.subscription_wallet;
     
-    require!(merchant_plan.is_active, ErrorCode::PlanInactive);
+    require!(merchant_plan.is_active, ErrorCodes::PlanInactive);
     require!(
         wallet.owner == ctx.accounts.user.key(),
-        ErrorCode::UnauthorizedWalletAccess
+        ErrorCodes::UnauthorizedWalletAccess
     );
-    require!(session_token.len() <= 64, ErrorCode::SessionTokenTooLong);
-    require!(!session_token.is_empty(), ErrorCode::SessionTokenRequired);
+    require!(session_token.len() <= 64, ErrorCodes::SessionTokenTooLong);
+    require!(!session_token.is_empty(), ErrorCodes::SessionTokenRequired);
 
     let tracker = &ctx.accounts.session_token_tracker;
     if tracker.is_used {
-        return Err(ErrorCode::SessionTokenAlreadyUsed.into());
+        return Err(ErrorCodes::SessionTokenAlreadyUsed.into());
     }
 
     if !tracker.session_token.is_empty() && tracker.session_token != session_token {
         msg!("Security alert: Session token mismatch detected");
-        return Err(ErrorCode::SessionTokenAlreadyUsed.into());
+        return Err(ErrorCodes::SessionTokenAlreadyUsed.into());
     }
 
     // Calculate required buffer (3 months)
@@ -95,7 +95,7 @@ pub fn handler(
 
     require!(
         wallet_balance >= min_buffer,
-        ErrorCode::InsufficientWalletBalance
+        ErrorCodes::InsufficientWalletBalance
     );
 
     // Create subscription
@@ -127,12 +127,12 @@ pub fn handler(
     // Update counters
     wallet.total_subscriptions = wallet.total_subscriptions
         .checked_add(1)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     let merchant_plan = &mut ctx.accounts.merchant_plan;
     merchant_plan.total_subscribers = merchant_plan.total_subscribers
         .checked_add(1)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     emit!(SubscriptionCreated {
         subscription_pda: subscription.key(),

@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{
     SubscriptionState, SubscriptionWallet, MerchantPlan, ProtocolConfig,
-    YieldVault, PaymentExecuted, ErrorCode
+    YieldVault, PaymentExecuted, ErrorCodes
 };
 use crate::utils::{
     get_vault_total_value, calculate_shares_for_withdrawal,
@@ -20,7 +20,7 @@ pub struct ExecutePaymentFromWallet<'info> {
             subscription_state.mint.as_ref()
         ],
         bump = subscription_state.bump,
-        constraint = subscription_state.is_active @ ErrorCode::SubscriptionInactive,
+        constraint = subscription_state.is_active @ ErrorCodes::SubscriptionInactive,
     )]
     pub subscription_state: Account<'info, SubscriptionState>,
 
@@ -38,7 +38,7 @@ pub struct ExecutePaymentFromWallet<'info> {
 
     #[account(
         constraint = merchant_plan.key() == subscription_state.merchant_plan,
-        constraint = merchant_plan.is_active @ ErrorCode::PlanInactive,
+        constraint = merchant_plan.is_active @ ErrorCodes::PlanInactive,
     )]
     pub merchant_plan: Account<'info, MerchantPlan>,
 
@@ -93,12 +93,12 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
     let protocol_config = &ctx.accounts.protocol_config;
     let current_time = Clock::get()?.unix_timestamp;
     
-    require!(subscription.is_active, ErrorCode::SubscriptionInactive);
+    require!(subscription.is_active, ErrorCodes::SubscriptionInactive);
     
     let time_since_last = current_time - subscription.last_payment_timestamp;
     require!(
         time_since_last >= subscription.payment_interval,
-        ErrorCode::PaymentTooEarly
+        ErrorCodes::PaymentTooEarly
     );
 
     // Calculate fees
@@ -110,7 +110,7 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
         .unwrap() as u64;
     
     let merchant_receives = base_amount.checked_sub(protocol_fee)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     
     let total_charge = base_amount;
 
@@ -119,7 +119,7 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
     if wallet_balance < total_charge && wallet.is_yield_enabled && wallet.yield_shares > 0 {
         // Need to redeem shares
         let shortfall = total_charge.checked_sub(wallet_balance)
-            .ok_or(ErrorCode::MathOverflow)?;
+            .ok_or(ErrorCodes::MathOverflow)?;
         
         let vault = &mut ctx.accounts.yield_vault.as_mut().unwrap();
         
@@ -137,7 +137,7 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
         
         require!(
             wallet.yield_shares >= shares_needed,
-            ErrorCode::InsufficientShares
+            ErrorCodes::InsufficientShares
         );
 
         // Withdraw from vault
@@ -153,16 +153,16 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
         // Update share balances
         wallet.yield_shares = wallet.yield_shares
             .checked_sub(shares_needed)
-            .ok_or(ErrorCode::MathOverflow)?;
+            .ok_or(ErrorCodes::MathOverflow)?;
         
         vault.total_shares_issued = vault.total_shares_issued
             .checked_sub(shares_needed)
-            .ok_or(ErrorCode::MathOverflow)?;
+            .ok_or(ErrorCodes::MathOverflow)?;
     }
 
     // Now verify we have enough funds
     let final_balance = ctx.accounts.wallet_token_account.amount;
-    require!(final_balance >= total_charge, ErrorCode::InsufficientFunds);
+    require!(final_balance >= total_charge, ErrorCodes::InsufficientFunds);
 
     // Create PDA signer
     let owner_key = wallet.owner;
@@ -214,14 +214,14 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
     subscription.last_payment_timestamp = current_time;
     subscription.total_paid = subscription.total_paid
         .checked_add(total_charge)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     subscription.payment_count = subscription.payment_count
         .checked_add(1)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     wallet.total_spent = wallet.total_spent
         .checked_add(total_charge)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     emit!(PaymentExecuted {
         subscription_pda: subscription.key(),

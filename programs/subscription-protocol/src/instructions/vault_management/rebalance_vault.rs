@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use crate::{YieldVault, VaultRebalanced, ErrorCode};
+use crate::{YieldVault, VaultRebalanced, ErrorCodes};
 use crate::utils::{
     calculate_buffer_amount,
     get_vault_total_value,
@@ -14,7 +14,7 @@ pub struct RebalanceVault<'info> {
         mut,
         seeds = [b"yield_vault", yield_vault.mint.as_ref()],
         bump = yield_vault.bump,
-        has_one = authority @ ErrorCode::UnauthorizedProtocolUpdate
+        has_one = authority @ ErrorCodes::UnauthorizedProtocolUpdate
     )]
     pub yield_vault: Account<'info, YieldVault>,
 
@@ -43,7 +43,7 @@ pub struct RebalanceVault<'info> {
 pub fn handler(ctx: Context<RebalanceVault>) -> Result<()> {
     let vault = &ctx.accounts.yield_vault;
     
-    require!(!vault.emergency_mode, ErrorCode::EmergencyModeEnabled);
+    require!(!vault.emergency_mode, ErrorCodes::EmergencyModeEnabled);
 
     let buffer_balance = ctx.accounts.vault_buffer.amount;
     let total_value = get_vault_total_value(
@@ -56,7 +56,7 @@ pub fn handler(ctx: Context<RebalanceVault>) -> Result<()> {
     if buffer_balance < target_buffer {
         // Need to withdraw from Kamino to top up buffer
         let shortfall = target_buffer.checked_sub(buffer_balance)
-            .ok_or(ErrorCode::MathOverflow)?;
+            .ok_or(ErrorCodes::MathOverflow)?;
         
         // CPI to Kamino to redeem collateral
         withdraw_from_kamino_internal(
@@ -76,11 +76,11 @@ pub fn handler(ctx: Context<RebalanceVault>) -> Result<()> {
     } else if buffer_balance > target_buffer {
         // Buffer too high, deposit excess to Kamino
         let excess = buffer_balance.checked_sub(target_buffer)
-            .ok_or(ErrorCode::MathOverflow)?;
+            .ok_or(ErrorCodes::MathOverflow)?;
         
         // Only rebalance if excess is significant (> 1% of total)
         let min_rebalance = total_value.checked_div(100)
-            .ok_or(ErrorCode::MathOverflow)?;
+            .ok_or(ErrorCodes::MathOverflow)?;
         
         if excess > min_rebalance {
             // CPI to Kamino to deposit

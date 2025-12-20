@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, TokenAccount};
-use crate::{YieldVault, YieldVaultInitialized, ErrorCode};
+use crate::{YieldVault, YieldVaultInitialized, ErrorCodes};
 
 #[derive(Accounts)]
 pub struct InitializeYieldVault {
@@ -34,7 +34,7 @@ pub fn handler(
     ctx: Context,
     target_buffer_bps: u16,
 ) -> Result {
-    require!(target_buffer_bps <= 5000, ErrorCode::InvalidBufferRatio);
+    require!(target_buffer_bps <= 5000, ErrorCodes::InvalidBufferRatio);
     
     let vault = &mut ctx.accounts.yield_vault;
     vault.authority = ctx.accounts.authority.key();

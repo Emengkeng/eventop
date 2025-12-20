@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
-use crate::{SubscriptionWallet, YieldVault, YieldWithdrawal, ErrorCode};
+use crate::{SubscriptionWallet, YieldVault, YieldWithdrawal, ErrorCodes};
 use crate::utils::{
     calculate_usdc_value_of_shares,
     get_vault_total_value,
@@ -17,7 +17,7 @@ pub struct WithdrawFromYield<'info> {
             subscription_wallet.mint.as_ref()
         ],
         bump = subscription_wallet.bump,
-        has_one = owner @ ErrorCode::UnauthorizedWalletAccess
+        has_one = owner @ ErrorCodes::UnauthorizedWalletAccess
     )]
     pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
@@ -58,11 +58,11 @@ pub fn handler(
     let wallet = &mut ctx.accounts.subscription_wallet;
     let vault = &mut ctx.accounts.yield_vault;
     
-    require!(wallet.is_yield_enabled, ErrorCode::YieldNotEnabled);
-    require!(shares_to_redeem > 0, ErrorCode::InvalidShareAmount);
+    require!(wallet.is_yield_enabled, ErrorCodes::YieldNotEnabled);
+    require!(shares_to_redeem > 0, ErrorCodes::InvalidShareAmount);
     require!(
         wallet.yield_shares >= shares_to_redeem,
-        ErrorCode::InsufficientShares
+        ErrorCodes::InsufficientShares
     );
 
     // Calculate USDC value
@@ -85,14 +85,14 @@ pub fn handler(
     // Update state
     wallet.yield_shares = wallet.yield_shares
         .checked_sub(shares_to_redeem)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     
     vault.total_shares_issued = vault.total_shares_issued
         .checked_sub(shares_to_redeem)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     vault.total_usdc_deposited = vault.total_usdc_deposited
         .checked_sub(usdc_value)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     emit!(YieldWithdrawal {
         wallet_pda: wallet.key(),

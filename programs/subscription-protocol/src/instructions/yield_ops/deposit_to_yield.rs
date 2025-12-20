@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::{SubscriptionWallet, YieldVault, YieldDeposit, ErrorCode};
+use crate::{SubscriptionWallet, YieldVault, YieldDeposit, ErrorCodes};
 use crate::utils::{
     calculate_shares_for_deposit,
     get_vault_total_value
@@ -16,7 +16,7 @@ pub struct DepositToYield<'info> {
             subscription_wallet.mint.as_ref()
         ],
         bump = subscription_wallet.bump,
-        has_one = owner @ ErrorCode::UnauthorizedWalletAccess
+        has_one = owner @ ErrorCodes::UnauthorizedWalletAccess
     )]
     pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
@@ -54,11 +54,11 @@ pub fn handler(ctx: Context<DepositToYield>, amount: u64) -> Result<()> {
     let wallet = &mut ctx.accounts.subscription_wallet;
     let vault = &mut ctx.accounts.yield_vault;
     
-    require!(wallet.is_yield_enabled, ErrorCode::YieldNotEnabled);
-    require!(amount > 0, ErrorCode::InvalidDepositAmount);
+    require!(wallet.is_yield_enabled, ErrorCodes::YieldNotEnabled);
+    require!(amount > 0, ErrorCodes::InvalidDepositAmount);
     require!(
         ctx.accounts.wallet_token_account.amount >= amount,
-        ErrorCode::InsufficientWalletBalance
+        ErrorCodes::InsufficientWalletBalance
     );
 
     // Calculate shares to issue
@@ -95,14 +95,14 @@ pub fn handler(ctx: Context<DepositToYield>, amount: u64) -> Result<()> {
     // Update state
     wallet.yield_shares = wallet.yield_shares
         .checked_add(shares_to_issue)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     
     vault.total_shares_issued = vault.total_shares_issued
         .checked_add(shares_to_issue)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
     vault.total_usdc_deposited = vault.total_usdc_deposited
         .checked_add(amount)
-        .ok_or(ErrorCode::MathOverflow)?;
+        .ok_or(ErrorCodes::MathOverflow)?;
 
     emit!(YieldDeposit {
         wallet_pda: wallet.key(),

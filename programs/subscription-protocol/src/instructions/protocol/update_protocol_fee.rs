@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::{ProtocolConfig, ProtocolFeeUpdated, ErrorCode};
+use crate::{ProtocolConfig, ProtocolFeeUpdated, ErrorCodes};
 
 #[derive(Accounts)]
 pub struct UpdateProtocolFee {
@@ -7,7 +7,7 @@ pub struct UpdateProtocolFee {
         mut,
         seeds = [b"protocol_config"],
         bump = protocol_config.bump,
-        has_one = authority @ ErrorCode::UnauthorizedProtocolUpdate
+        has_one = authority @ ErrorCodes::UnauthorizedProtocolUpdate
     )]
     pub protocol_config: Account,
 
@@ -18,7 +18,7 @@ pub fn handler(
     ctx: Context,
     new_fee_bps: u16,
 ) -> Result {
-    require!(new_fee_bps <= 1000, ErrorCode::FeeTooHigh);
+    require!(new_fee_bps <= 1000, ErrorCodes::FeeTooHigh);
     
     let config = &mut ctx.accounts.protocol_config;
     let old_fee = config.protocol_fee_bps;

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::{YieldVault, EmergencyModeChanged, ErrorCode};
+use crate::{YieldVault, EmergencyModeChanged, ErrorCodes};
 use crate::utils::{calculate_current_exchange_rate, get_vault_total_value};
 
 #[derive(Accounts)]
@@ -8,7 +8,7 @@ pub struct SetEmergencyMode<'info> {
         mut,
         seeds = [b"yield_vault", yield_vault.mint.as_ref()],
         bump = yield_vault.bump,
-        has_one = authority @ ErrorCode::UnauthorizedProtocolUpdate
+        has_one = authority @ ErrorCodes::UnauthorizedProtocolUpdate
     )]
     pub yield_vault: Account<'info, YieldVault>,
 

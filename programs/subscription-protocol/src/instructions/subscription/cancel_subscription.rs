@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::{
     SubscriptionState, SubscriptionWallet, MerchantPlan,
-    SubscriptionCancelled, ErrorCode
+    SubscriptionCancelled, ErrorCodes
 };
 
 #[derive(Accounts)]
@@ -15,7 +15,7 @@ pub struct CancelSubscriptionWallet<'info> {
             subscription_state.mint.as_ref()
         ],
         bump = subscription_state.bump,
-        has_one = user @ ErrorCode::UnauthorizedCancellation,
+        has_one = user @ ErrorCodes::UnauthorizedCancellation,
         close = user
     )]
     pub subscription_state: Account<'info, SubscriptionState>,
@@ -38,7 +38,7 @@ pub fn handler(ctx: Context<CancelSubscriptionWallet>) -> Result<()> {
     let wallet = &mut ctx.accounts.subscription_wallet;
     let merchant_plan = &mut ctx.accounts.merchant_plan;
     
-    require!(subscription.is_active, ErrorCode::SubscriptionInactive);
+    require!(subscription.is_active, ErrorCodes::SubscriptionInactive);
 
     wallet.total_subscriptions = wallet.total_subscriptions.saturating_sub(1);
     merchant_plan.total_subscribers = merchant_plan.total_subscribers.saturating_sub(1);
