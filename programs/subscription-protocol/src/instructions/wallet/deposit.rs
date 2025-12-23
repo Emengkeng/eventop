@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::{SubscriptionWallet, WalletDeposit, ErrorCode};
+use crate::{SubscriptionWallet, WalletDeposit, ErrorCodes};
 
 #[derive(Accounts)]
-pub struct DepositToWallet {
+pub struct DepositToWallet<'info> {
     #[account(
         seeds = [
             b"subscription_wallet",
@@ -12,31 +12,32 @@ pub struct DepositToWallet {
         ],
         bump = subscription_wallet.bump,
     )]
-    pub subscription_wallet: Account,
+    pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
     #[account(mut)]
-    pub user: Signer,
+    pub user: Signer<'info>,
 
     #[account(
         mut,
         token::mint = subscription_wallet.mint,
         token::authority = user
     )]
-    pub user_token_account: Account,
+    pub user_token_account: Account<'info, TokenAccount>,
 
     #[account(
         mut,
         token::mint = subscription_wallet.mint,
         token::authority = subscription_wallet
     )]
-    pub wallet_token_account: Account,
+    pub wallet_token_account: Account<'info, TokenAccount>,
 
-    pub token_program: Program,
+    pub token_program: Program<'info, Token>,
 }
 
-pub fn handler(ctx: Context, amount: u64) -> Result {
-    require!(amount > 0, ErrorCode::InvalidDepositAmount);
+pub fn handler(ctx: Context<DepositToWallet>, amount: u64) -> Result<()> {
+    require!(amount > 0, ErrorCodes::InvalidDepositAmount);
 
+    // Transfer from user's main wallet to subscription wallet
     let cpi_accounts = Transfer {
         from: ctx.accounts.user_token_account.to_account_info(),
         to: ctx.accounts.wallet_token_account.to_account_info(),

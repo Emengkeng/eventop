@@ -3,7 +3,7 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 use crate::{SubscriptionWallet, SubscriptionWalletCreated};
 
 #[derive(Accounts)]
-pub struct CreateSubscriptionWallet {
+pub struct CreateSubscriptionWallet<'info> {
     #[account(
         init,
         payer = user,
@@ -15,24 +15,24 @@ pub struct CreateSubscriptionWallet {
         ],
         bump
     )]
-    pub subscription_wallet: Account,
+    pub subscription_wallet: Account<'info, SubscriptionWallet>,
 
     #[account(
         mut,
         constraint = main_token_account.owner == subscription_wallet.key(),
         constraint = main_token_account.mint == mint.key()
     )]
-    pub main_token_account: Account,
+    pub main_token_account: Account<'info, TokenAccount>,
 
     #[account(mut)]
-    pub user: Signer,
+    pub user: Signer<'info>,
 
-    pub mint: Account,
-    pub token_program: Program,
-    pub system_program: Program,
+    pub mint: Account<'info, Mint>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
-pub fn handler(ctx: Context) -> Result {
+pub fn handler(ctx: Context<CreateSubscriptionWallet>) -> Result<()> {
     let wallet = &mut ctx.accounts.subscription_wallet;
     
     wallet.owner = ctx.accounts.user.key();

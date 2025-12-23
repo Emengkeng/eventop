@@ -1,9 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::Token;
 use crate::{ProtocolConfig, ProtocolInitialized, ErrorCodes};
 
 #[derive(Accounts)]
-pub struct InitializeProtocol {
+pub struct InitializeProtocol<'info> {
     #[account(
         init,
         payer = authority,
@@ -11,21 +10,21 @@ pub struct InitializeProtocol {
         seeds = [b"protocol_config"],
         bump
     )]
-    pub protocol_config: Account,
+    pub protocol_config: Account<'info, ProtocolConfig>,
 
     #[account(mut)]
-    pub authority: Signer,
+    pub authority: Signer<'info>,
 
     /// CHECK: Treasury account
-    pub treasury: AccountInfo,
+    pub treasury: AccountInfo<'info>,
 
-    pub system_program: Program,
+    pub system_program: Program<'info, System>,
 }
 
 pub fn handler(
-    ctx: Context,
+    ctx: Context<InitializeProtocol>,
     protocol_fee_bps: u16,
-) -> Result {
+) -> Result<()> {
     require!(protocol_fee_bps <= 1000, ErrorCodes::FeeTooHigh);
     
     let config = &mut ctx.accounts.protocol_config;
