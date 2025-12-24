@@ -83,7 +83,7 @@ pub fn handler(ctx: Context<DepositToYield>, amount: u64) -> Result<()> {
     let cpi_accounts = Transfer {
         from: ctx.accounts.wallet_token_account.to_account_info(),
         to: ctx.accounts.vault_buffer.to_account_info(),
-        authority: ctx.accounts.subscription_wallet.to_account_info(),
+        authority: wallet.to_account_info(),
     };
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),

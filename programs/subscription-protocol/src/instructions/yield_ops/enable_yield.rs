@@ -86,7 +86,7 @@ pub fn handler(ctx: Context<EnableYield>, amount: u64) -> Result<()> {
     let cpi_accounts = Transfer {
         from: ctx.accounts.wallet_token_account.to_account_info(),
         to: ctx.accounts.vault_buffer.to_account_info(),
-        authority: ctx.accounts.subscription_wallet.to_account_info(),
+        authority: wallet.to_account_info(),
     };
     
     let owner_key = wallet.owner;
