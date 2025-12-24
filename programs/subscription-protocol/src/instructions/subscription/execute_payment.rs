@@ -73,7 +73,7 @@ pub struct ExecutePaymentFromWallet<'info> {
     #[account(
         mut,
         seeds = [b"yield_vault", subscription_wallet.mint.as_ref()],
-        bump = yield_vault.as_ref().map(|v| v.bump).unwrap(),
+        bump,
     )]
     pub yield_vault: Option<Account<'info, YieldVault>>,
 
