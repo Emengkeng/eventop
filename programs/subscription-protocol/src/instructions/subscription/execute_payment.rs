@@ -73,7 +73,7 @@ pub struct ExecutePaymentFromWallet<'info> {
     #[account(
         mut,
         seeds = [b"yield_vault", subscription_wallet.mint.as_ref()],
-        bump = yield_vault.as_ref().unwrap().bump,
+        bump = yield_vault.as_ref().map(|v| v.bump).unwrap(),
     )]
     pub yield_vault: Option<Account<'info, YieldVault>>,
 
@@ -142,12 +142,12 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
 
         // Withdraw from vault
         withdraw_from_vault_internal(
+            vault.to_account_info(),
             &vault,
             ctx.accounts.vault_buffer.as_ref().unwrap(),
             &ctx.accounts.wallet_token_account,
             &ctx.accounts.token_program,
-            shortfall,
-            vault.bump,
+            shortfall
         )?;
 
         // Update share balances

@@ -67,12 +67,12 @@ pub fn handler(ctx: Context<DisableYield>) -> Result<()> {
 
     // Withdraw from vault to user's wallet
     withdraw_from_vault_internal(
+        vault.to_account_info(),
         &vault,
         &ctx.accounts.vault_buffer,
         &ctx.accounts.wallet_token_account,
         &ctx.accounts.token_program,
-        usdc_value,
-        vault.bump,
+        usdc_value
     )?;
 
     // Update state
