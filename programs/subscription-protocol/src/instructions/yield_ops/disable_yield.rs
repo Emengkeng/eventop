@@ -2,9 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 use crate::{SubscriptionWallet, YieldVault, YieldDisabled, ErrorCodes};
 use crate::utils::{
-    calculate_usdc_value_of_shares,
-    get_vault_total_value,
-    withdraw_from_vault_internal
+    calculate_collateral_for_liquidity, calculate_usdc_value_of_shares, get_vault_total_value, withdraw_from_kamino_internal, withdraw_from_vault_internal
 };
 
 #[derive(Accounts)]
@@ -45,8 +43,23 @@ pub struct DisableYield<'info> {
     )]
     pub vault_buffer: Account<'info, TokenAccount>,
 
-    /// CHECK: Kamino reserve
+   #[account(
+        mut,
+        constraint = vault_collateral.key() == yield_vault.kamino_collateral @ ErrorCodes::InvalidCollateralAccount
+    )]
+    pub vault_collateral: Account<'info, TokenAccount>,
+
     pub kamino_reserve: AccountInfo<'info>,
+
+    pub kamino_program: AccountInfo<'info>,
+
+    pub lending_market: AccountInfo<'info>,
+
+    pub lending_market_authority: AccountInfo<'info>,
+
+    pub reserve_liquidity_supply: AccountInfo<'info>,
+
+    pub reserve_collateral_mint: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -62,10 +75,40 @@ pub fn handler(ctx: Context<DisableYield>) -> Result<()> {
     let usdc_value = calculate_usdc_value_of_shares(
         wallet.yield_shares,
         vault.total_shares_issued,
-        get_vault_total_value(ctx.accounts.kamino_reserve.clone(), &vault)?,
+        get_vault_total_value(
+            ctx.accounts.kamino_reserve.clone(),
+            &vault,
+            &ctx.accounts.vault_buffer,
+            &ctx.accounts.vault_collateral,
+        )?,
     )?;
 
-    // Withdraw from vault to user's wallet
+    // Check if we need to withdraw from Kamino first
+    if ctx.accounts.vault_buffer.amount < usdc_value {
+        let shortfall = usdc_value
+            .checked_sub(ctx.accounts.vault_buffer.amount)
+            .ok_or(ErrorCodes::MathOverflow)?;
+        
+        let collateral_needed = calculate_collateral_for_liquidity(
+            shortfall,
+            &ctx.accounts.kamino_reserve,
+        )?;
+        
+        withdraw_from_kamino_internal(
+            vault,
+            &ctx.accounts.vault_buffer,
+            &ctx.accounts.vault_collateral,
+            &ctx.accounts.kamino_program,
+            &ctx.accounts.kamino_reserve,
+            &ctx.accounts.lending_market,
+            &ctx.accounts.lending_market_authority,
+            &ctx.accounts.reserve_collateral_mint,
+            &ctx.accounts.reserve_liquidity_supply,
+            &ctx.accounts.token_program,
+            collateral_needed,
+        )?;
+    }
+
     withdraw_from_vault_internal(
         vault.to_account_info(),
         &vault,
@@ -75,7 +118,6 @@ pub fn handler(ctx: Context<DisableYield>) -> Result<()> {
         usdc_value
     )?;
 
-    // Update state
     vault.total_shares_issued = vault.total_shares_issued
         .checked_sub(wallet.yield_shares)
         .ok_or(ErrorCodes::MathOverflow)?;

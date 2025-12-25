@@ -17,6 +17,9 @@ pub enum ErrorCodes {
     #[msg("Fee amount must be greater than zero")]
     InvalidFeeAmount,
 
+    #[msg(" Amount must be greater than zero")]
+    InvalidAmount,
+
     #[msg("Payment interval must be greater than zero")]
     InvalidInterval,
 
@@ -38,8 +41,14 @@ pub enum ErrorCodes {
     #[msg("Invalid withdrawal amount")]
     InvalidWithdrawAmount,
 
+    #[msg("Invalid collateral account")]
+    InvalidCollateralAccount,
+
     #[msg("Insufficient wallet balance for subscription")]
     InsufficientWalletBalance,
+
+    #[msg("Insufficient collateral deposited")]
+    InsufficientCollateral,
 
     #[msg("Insufficient funds in wallet")]
     InsufficientFunds,

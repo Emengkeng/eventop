@@ -2,9 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{SubscriptionWallet, YieldVault, YieldEnabled, ErrorCodes};
 use crate::utils::{
-    calculate_buffer_amount,
-    calculate_shares_for_deposit,
-    get_vault_total_value
+    calculate_buffer_amount, calculate_shares_for_deposit, deposit_to_kamino_internal, get_vault_total_value
 };
 
 #[derive(Accounts)]
@@ -45,8 +43,23 @@ pub struct EnableYield<'info> {
     )]
     pub vault_buffer: Account<'info, TokenAccount>,
 
-    /// CHECK: Kamino reserve
+   #[account(
+        mut,
+        constraint = vault_collateral.key() == yield_vault.kamino_collateral @ ErrorCodes::InvalidCollateralAccount
+    )]
+    pub vault_collateral: Account<'info, TokenAccount>,
+
     pub kamino_reserve: AccountInfo<'info>,
+
+    pub kamino_program: AccountInfo<'info>,
+
+    pub lending_market: AccountInfo<'info>,
+
+    pub lending_market_authority: AccountInfo<'info>,
+
+    pub reserve_liquidity_supply: AccountInfo<'info>,
+
+    pub reserve_collateral_mint: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -69,26 +82,22 @@ pub fn handler(ctx: Context<EnableYield>, amount: u64) -> Result<()> {
 
     require!(yield_amount > 0, ErrorCodes::YieldAmountTooSmall);
 
-    // Calculate shares to issue (1:1 initially, will accrue yield over time)
     let shares_to_issue = if vault.total_shares_issued == 0 {
-        // First deposit: 1:1 ratio
         yield_amount
     } else {
-        // Subsequent deposits: based on current exchange rate
         calculate_shares_for_deposit(
             yield_amount,
             vault.total_shares_issued,
-            get_vault_total_value(ctx.accounts.kamino_reserve.clone(), &vault)?,
+            get_vault_total_value(
+                ctx.accounts.kamino_reserve.clone(),
+                &vault,
+                &ctx.accounts.vault_buffer,
+                &ctx.accounts.vault_collateral,
+            )?,
         )?
     };
 
     // Transfer yield portion to vault buffer
-    let cpi_accounts = Transfer {
-        from: ctx.accounts.wallet_token_account.to_account_info(),
-        to: ctx.accounts.vault_buffer.to_account_info(),
-        authority: wallet.to_account_info(),
-    };
-    
     let owner_key = wallet.owner;
     let mint_key = wallet.mint;
     let bump = wallet.bump;
@@ -100,6 +109,11 @@ pub fn handler(ctx: Context<EnableYield>, amount: u64) -> Result<()> {
     ];
     let signer = &[&seeds[..]];
 
+    let cpi_accounts = Transfer {
+        from: ctx.accounts.wallet_token_account.to_account_info(),
+        to: ctx.accounts.vault_buffer.to_account_info(),
+        authority: wallet.to_account_info(),
+    };
     let cpi_ctx = CpiContext::new_with_signer(
         ctx.accounts.token_program.to_account_info(),
         cpi_accounts,
@@ -107,7 +121,20 @@ pub fn handler(ctx: Context<EnableYield>, amount: u64) -> Result<()> {
     );
     token::transfer(cpi_ctx, yield_amount)?;
 
-    // Update state
+    deposit_to_kamino_internal(
+        vault,
+        &ctx.accounts.vault_buffer,
+        &ctx.accounts.vault_collateral,
+        &ctx.accounts.kamino_program,
+        &ctx.accounts.kamino_reserve,
+        &ctx.accounts.lending_market,
+        &ctx.accounts.lending_market_authority,
+        &ctx.accounts.reserve_liquidity_supply,
+        &ctx.accounts.reserve_collateral_mint,
+        &ctx.accounts.token_program,
+        yield_amount,
+    )?;
+
     wallet.yield_shares = shares_to_issue;
     wallet.is_yield_enabled = true;
     
