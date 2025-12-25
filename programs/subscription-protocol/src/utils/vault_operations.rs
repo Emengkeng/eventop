@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{YieldVault, ErrorCode};
+use kamino_lend::state::Reserve;
 
 /// Get the total value held in the vault
 /// Includes both buffer and Kamino deposits
