@@ -111,7 +111,7 @@ pub mod subscription_protocol {
     // Vault Management
     // ========================================================================
 
-    /// Protocol-level rebalancing: Move funds between buffer and Kamino
+    /// Protocol-level rebalancing: Move funds between buffer and Juplend
     pub fn rebalance_vault(
         ctx: Context<RebalanceVault>,
     ) -> Result<()> {

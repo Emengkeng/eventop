@@ -22,7 +22,6 @@ pub struct InitializeYieldVault<'info> {
     pub usdc_buffer: Account<'info, TokenAccount>,
 
     /// Jupiter Lend fToken account (owned by yield_vault PDA)
-    /// This replaces kamino_collateral
     pub jupiter_ftoken_account: Account<'info, TokenAccount>,
 
     /// Jupiter Lend lending account

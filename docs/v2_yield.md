@@ -7,7 +7,7 @@ Eventop allows users to optionally earn yield on their idle USDC balances using 
 The core idea is simple:
 
 * If a user's USDC is sitting idle for a few months, it shouldn't just sit there
-* When enabled, Eventop pools user funds into a shared yield vault that supplies USDC to Kamino Lend
+* When enabled, Eventop pools user funds into a shared yield vault that supplies USDC to Jup Lend
 * When it's time to deduct monthly payments, funds are always available (either from wallet buffer or by redeeming shares)
 * Yield accrues automatically through the vault's exchange rate
 
@@ -30,7 +30,7 @@ This is **not** marketed as passive income. Yield is treated as a **cost reducer
    Funds must be withdrawable at any time.
 
 5. **Conservative protocols only**
-   Yield comes from Kamino Lend USDC market - battle-tested, instant withdrawals.
+   Yield comes from Jup Lend USDC market - battle-tested, instant withdrawals.
 
 6. **Scalable from day one**
    Architecture handles 1 user to 1M+ users without major changes.
@@ -41,7 +41,7 @@ This is **not** marketed as passive income. Yield is treated as a **cost reducer
 
 ### Why Pooled?
 
-At scale (thousands to millions of users), per-user Kamino positions would be prohibitively expensive:
+At scale (thousands to millions of users), per-user Jup positions would be prohibitively expensive:
 - **Rent costs**: ~$800K for 1M users with individual positions
 - **Gas costs**: Thousands of transactions for rebalancing
 - **Complexity**: Monitoring millions of positions
@@ -57,7 +57,7 @@ At scale (thousands to millions of users), per-user Kamino positions would be pr
 │                                                     │
 │  YieldVault PDA                                     │
 │  ├── USDC Buffer Pool (10-15% of all funds)        │
-│  ├── kUSDC Position (85-90% in Kamino)             │
+│  ├── kUSDC Position (85-90% in Jup)             │
 │  ├── Total Shares Issued                           │
 │  └── Emergency Controls                            │
 │                                                     │
@@ -96,7 +96,7 @@ At scale (thousands to millions of users), per-user Kamino positions would be pr
    - Buffer (15%): 150 USDC → stays in wallet
    - Yield (85%): 850 USDC → moves to YieldVault
 4. YieldVault issues 850 shares to user
-5. YieldVault deposits 850 USDC to Kamino (receives kUSDC)
+5. YieldVault deposits 850 USDC to Jup (receives kUSDC)
 ```
 
 **Share Calculation:**
@@ -107,7 +107,7 @@ At scale (thousands to millions of users), per-user Kamino positions would be pr
 ### 2. Yield Accrues Automatically
 
 **No on-chain actions needed:**
-- Kamino's kUSDC increases in value over time (exchange rate grows)
+- Jup's kUSDC increases in value over time (exchange rate grows)
 - User's share count stays constant (850 shares)
 - But each share becomes worth more USDC
 
@@ -139,7 +139,7 @@ At scale (thousands to millions of users), per-user Kamino positions would be pr
 4. Calculate shares needed: ~15 shares (at current rate)
 5. YieldVault redeems shares:
    - Burns 15 shares from user
-   - Withdraws from Kamino if needed
+   - Withdraws from Jup if needed
    - Transfers 15 USDC to user's wallet
 6. Complete payment
 ```
@@ -150,9 +150,9 @@ At scale (thousands to millions of users), per-user Kamino positions would be pr
 ```
 1. Check vault buffer vs target (10-15%)
 2. If buffer < 10%:
-   - Withdraw from Kamino to top up
+   - Withdraw from Jup to top up
 3. If buffer > 20%:
-   - Deposit excess to Kamino
+   - Deposit excess to Jup
 4. Single transaction for entire protocol
 ```
 
@@ -171,7 +171,7 @@ User Deposits
               │
               ├─ 10-15% → Vault Buffer (protocol-level)
               │
-              └─ 85-90% → Kamino Lend (kUSDC)
+              └─ 85-90% → Jup Lend (kUSDC)
                           │
                           └─ Earns yield via lending
 ```
@@ -186,8 +186,8 @@ pub struct YieldVault {
     pub authority: Pubkey,              // Protocol owner
     pub mint: Pubkey,                   // USDC mint
     pub usdc_buffer: Pubkey,            // Vault's buffer token account
-    pub kamino_collateral: Pubkey,      // kUSDC token account
-    pub kamino_reserve: Pubkey,         // Kamino reserve address
+    pub Jup_collateral: Pubkey,      // kUSDC token account
+    pub Jup_reserve: Pubkey,         // Jup reserve address
     pub total_shares_issued: u64,       // Total shares across all users
     pub total_usdc_deposited: u64,      // Tracking (approximate)
     pub target_buffer_bps: u16,         // 1500 = 15%
@@ -222,7 +222,7 @@ pub struct SubscriptionWallet {
 
 ### Protocol-Facing
 
-5. **rebalance_vault()** - Keeper adjusts buffer/Kamino split
+5. **rebalance_vault()** - Keeper adjusts buffer/Jup split
 6. **set_emergency_mode(bool)** - Admin kill switch
 
 ### Automatic
@@ -264,7 +264,7 @@ User gets proportional share of vault value, including accrued yield.
 
 ### Cost Comparison: 1 Million Users
 
-| Metric | Per-User Kamino | Pooled Vault |
+| Metric | Per-User Jup | Pooled Vault |
 |--------|----------------|--------------|
 | Token Accounts | 2M accounts | 2 accounts |
 | Rent Cost | ~$800,000 | ~$8 |
@@ -278,12 +278,12 @@ User gets proportional share of vault value, including accrued yield.
 
 ## Emergency Procedures
 
-### If Kamino Pauses/Fails
+### If Jup Pauses/Fails
 
 **Phase 1: Detection**
 ```
 - Monitoring alerts on failed withdrawals
-- Admin manually verifies Kamino status
+- Admin manually verifies Jup status
 ```
 
 **Phase 2: Immediate Actions**
@@ -298,7 +298,7 @@ User gets proportional share of vault value, including accrued yield.
 
 **Phase 3: Gradual Exit**
 ```
-1. As Kamino liquidity returns, withdraw progressively
+1. As Jup liquidity returns, withdraw progressively
 2. Move funds to vault buffer
 3. Eventually disable yield feature protocol-wide
 4. Users redeem shares at final rate
@@ -316,7 +316,7 @@ User gets proportional share of vault value, including accrued yield.
 ## Security Considerations
 
 ### Smart Contract Risk
-- **Mitigation**: Use only audited protocols (Kamino is battle-tested)
+- **Mitigation**: Use only audited protocols (Jup is battle-tested)
 - **Buffer**: 10-15% never leaves our control
 - **Emergency mode**: Can freeze and exit gradually
 
