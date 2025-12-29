@@ -2,7 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{SubscriptionWallet, YieldVault, YieldDeposit, ErrorCodes};
 use crate::utils::{
-    calculate_shares_for_deposit, deposit_to_kamino_internal, get_vault_total_value
+    calculate_shares_for_deposit,
+    get_vault_total_value
 };
 
 #[derive(Accounts)]
@@ -43,23 +44,8 @@ pub struct DepositToYield<'info> {
     )]
     pub vault_buffer: Account<'info, TokenAccount>,
 
-    #[account(
-        mut,
-        constraint = vault_collateral.key() == yield_vault.kamino_collateral @ ErrorCodes::InvalidCollateralAccount
-    )]
-    pub vault_collateral: Account<'info, TokenAccount>,
-
-    pub kamino_reserve: AccountInfo<'info>,
-
-    pub kamino_program: AccountInfo<'info>,
-
-    pub lending_market: AccountInfo<'info>,
-
-    pub lending_market_authority: AccountInfo<'info>,
-
-    pub reserve_liquidity_supply: AccountInfo<'info>,
-
-    pub reserve_collateral_mint: AccountInfo<'info>,
+    /// CHECK: Jupiter Lend lending account
+    pub jupiter_lending: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -75,17 +61,19 @@ pub fn handler(ctx: Context<DepositToYield>, amount: u64) -> Result<()> {
         ErrorCodes::InsufficientWalletBalance
     );
 
+    // Calculate shares to issue
     let shares_to_issue = calculate_shares_for_deposit(
         amount,
         vault.total_shares_issued,
         get_vault_total_value(
-            ctx.accounts.kamino_reserve.clone(),
+            ctx.accounts.jupiter_lending.clone(),
             &vault,
-            &ctx.accounts.vault_buffer,
-            &ctx.accounts.vault_collateral,
+            Some(&ctx.accounts.vault_buffer),
+            None,
         )?,
     )?;
 
+    // Transfer to vault buffer
     let owner_key = wallet.owner;
     let mint_key = wallet.mint;
     let bump = wallet.bump;
@@ -109,20 +97,7 @@ pub fn handler(ctx: Context<DepositToYield>, amount: u64) -> Result<()> {
     );
     token::transfer(cpi_ctx, amount)?;
 
-    deposit_to_kamino_internal(
-        vault,
-        &ctx.accounts.vault_buffer,
-        &ctx.accounts.vault_collateral,
-        &ctx.accounts.kamino_program,
-        &ctx.accounts.kamino_reserve,
-        &ctx.accounts.lending_market,
-        &ctx.accounts.lending_market_authority,
-        &ctx.accounts.reserve_liquidity_supply,
-        &ctx.accounts.reserve_collateral_mint,
-        &ctx.accounts.token_program,
-        amount,
-    )?;
-
+    // Update state
     wallet.yield_shares = wallet.yield_shares
         .checked_add(shares_to_issue)
         .ok_or(ErrorCodes::MathOverflow)?;

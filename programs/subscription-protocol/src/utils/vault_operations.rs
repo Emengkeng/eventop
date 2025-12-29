@@ -1,91 +1,106 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{
+    instruction::{AccountMeta, Instruction},
+    program::invoke_signed,
+};
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::{YieldVault, ErrorCodes};
-use kamino_lend;
-use kamino_lend::state::Reserve;
+
+pub const JUPITER_LENDING_PROGRAM_DEVNET: &str = "7tjE28izRUjzmxC1QNXnNwcc4N82CNYCexf3k8mw67s3";
+pub const JUPITER_LIQUIDITY_PROGRAM_DEVNET: &str = "5uDkCoM96pwGYhAUucvCzLfm5UcjVRuxz6gH81RnRBmL";
+
+pub const JUPITER_LENDING_PROGRAM_MAINNET: &str = "jup3YeL8QhtSx1e253b2FDvsMNC87fDrgQZivbrndc9";
+pub const JUPITER_LIQUIDITY_PROGRAM_MAINNET: &str = "jupeiUmn818Jg1ekPURTpr4mFo29p46vygyykFJ3wZC";
+
+fn get_deposit_discriminator() -> Vec<u8> {
+    // sha256("global:deposit")[0..8]
+    vec![242, 35, 198, 137, 82, 225, 242, 182]
+}
+
+fn get_withdraw_discriminator() -> Vec<u8> {
+    // sha256("global:withdraw")[0..8]
+    vec![183, 18, 70, 156, 148, 109, 161, 34]
+}
 
 /// Get the total value held in the vault
-/// Includes both buffer and Kamino deposits
+/// Includes both buffer and Jupiter Lend deposits
 /// 
 /// # Arguments
-/// * `kamino_reserve` - Kamino reserve account info
+/// * `jupiter_lending` - Jupiter lending account info
 /// * `vault` - The yield vault
 /// 
 /// # Returns
 /// * Total value in lamports
-/// 
-/// # TODO
-/// Currently returns tracked amount. In production, should:
-/// 1. Query Kamino reserve for actual collateral value
-/// 2. Add buffer balance
-/// 3. Return total
-/// 
-/// # Example
-/// ```
-/// let total = get_vault_total_value(kamino_reserve, &vault)?;
-/// ```
 pub fn get_vault_total_value(
-    kamino_reserve: AccountInfo,
+    jupiter_lending: AccountInfo,
     vault: &YieldVault,
-    vault_buffer: &Account<TokenAccount>,
-    vault_collateral: &Account<TokenAccount>,
+    vault_buffer_account: Option<&Account<TokenAccount>>,
+    vault_ftoken_account: Option<&Account<TokenAccount>>,
 ) -> Result<u64> {
-    // Deserialize Kamino reserve to get exchange rate
-    let reserve_data = kamino_reserve.try_borrow_data()?;
-    let reserve = Reserve::try_deserialize(&mut &reserve_data[..])?;
+    let mut total_value = 0u64;
     
-    // Calculate total liquidity in the reserve
-    let borrowed_amount = reserve.liquidity.borrowed_amount_wads
-        .try_floor_u64()
-        .ok_or(ErrorCodes::MathOverflow)?;
+    // Add buffer balance
+    if let Some(buffer) = vault_buffer_account {
+        total_value = total_value
+            .checked_add(buffer.amount)
+            .ok_or(ErrorCodes::MathOverflow)?;
+    }
     
-    let total_liquidity = reserve.liquidity.available_amount
-        .checked_add(borrowed_amount)
-        .ok_or(ErrorCodes::MathOverflow)?;
+    // Add Jupiter Lend position value
+    if let Some(ftoken_account) = vault_ftoken_account {
+        let ftoken_balance = ftoken_account.amount;
+        
+        if ftoken_balance > 0 {
+            // Deserialize Jupiter Lending account to get exchange rate
+            let lending_data = jupiter_lending.try_borrow_data()?;
+            
+            // The Lending account structure (from IDL):
+            // - First 8 bytes: discriminator
+            // - Following bytes: account data
+            require!(lending_data.len() >= 8, ErrorCodes::InvalidJupiterLendAccount);
+            
+            // Skip discriminator and read the Lending struct
+            // Based on Jupiter Lend IDL, the token_exchange_price is at offset:
+            // mint (32) + f_token_mint (32) + lending_id (2) + decimals (1) + rewards_rate_model (32) + 
+            // liquidity_exchange_price (8) + token_exchange_price (8)
+            let exchange_rate_offset = 8 + 32 + 32 + 2 + 1 + 32 + 8;
+            
+            require!(
+                lending_data.len() >= exchange_rate_offset + 8,
+                ErrorCodes::InvalidJupiterLendAccount
+            );
+            
+            // Read token_exchange_price (u64) - represents value of 1 fToken
+            let mut exchange_rate_bytes = [0u8; 8];
+            exchange_rate_bytes.copy_from_slice(
+                &lending_data[exchange_rate_offset..exchange_rate_offset + 8]
+            );
+            let exchange_rate = u64::from_le_bytes(exchange_rate_bytes);
+            
+            // Calculate underlying value: (fToken_balance * exchange_rate) / 1e9
+            // Jupiter uses 1e9 precision for exchange rates
+            let ftoken_value = (ftoken_balance as u128)
+                .checked_mul(exchange_rate as u128)
+                .ok_or(ErrorCodes::MathOverflow)?
+                .checked_div(1_000_000_000) // 1e9 precision
+                .ok_or(ErrorCodes::MathOverflow)? as u64;
+            
+            total_value = total_value
+                .checked_add(ftoken_value)
+                .ok_or(ErrorCodes::MathOverflow)?;
+        }
+    }
     
-    let total_collateral_supply = reserve.collateral.mint_total_supply;
-    
-    // Calculate our Kamino position value
-    // value = (our_kUSDC_balance * total_liquidity) / total_collateral_supply
-    let kamino_value = (vault_collateral.amount as u128)
-        .checked_mul(total_liquidity as u128)
-        .ok_or(ErrorCodes::MathOverflow)?
-        .checked_div(total_collateral_supply as u128)
-        .ok_or(ErrorCodes::MathOverflow)?;
-    
-    // Total vault value = Kamino position + buffer
-    let total_value = (kamino_value as u64)
-        .checked_add(vault_buffer.amount)
-        .ok_or(ErrorCodes::MathOverflow)?;
+    // Fallback to tracked amount if no accounts provided
+    if vault_buffer_account.is_none() && vault_ftoken_account.is_none() {
+        return Ok(vault.total_usdc_deposited);
+    }
     
     Ok(total_value)
 }
 
 /// Withdraw USDC from vault buffer to a destination account
 /// Uses PDA signing to authorize the transfer
-/// 
-/// # Arguments
-/// * `vault_info` - The yield vault AccountInfo (PDA)
-/// * `vault` - The yield vault account data
-/// * `vault_buffer` - Buffer token account
-/// * `destination` - Destination token account
-/// * `token_program` - SPL Token program
-/// * `amount` - Amount to withdraw
-/// 
-/// # Security
-/// Uses vault PDA as authority with proper seeds
-/// 
-/// # Example
-/// ```
-/// withdraw_from_vault_internal(
-///     ctx.accounts.yield_vault.to_account_info(),
-///     &ctx.accounts.yield_vault,
-///     &buffer_account,
-///     &user_account,
-///     &token_program,
-///     1000
-/// )?;
-/// ```
 pub fn withdraw_from_vault_internal<'info>(
     vault_info: AccountInfo<'info>,
     vault: &YieldVault,
@@ -106,7 +121,7 @@ pub fn withdraw_from_vault_internal<'info>(
     let cpi_accounts = Transfer {
         from: vault_buffer.to_account_info(),
         to: destination.to_account_info(),
-        authority: vault_info, // Use the AccountInfo, not the data struct
+        authority: vault_info,
     };
     
     let cpi_ctx = CpiContext::new_with_signer(
@@ -119,54 +134,23 @@ pub fn withdraw_from_vault_internal<'info>(
     Ok(())
 }
 
-/// Deposit USDC to Kamino lending protocol
+/// Deposit USDC to Jupiter Lend protocol
 /// 
 /// # Arguments
-/// * `vault` - The yield vault
+/// * `vault` - The yield vault (contains authority info)
 /// * `from` - Source token account (vault buffer)
-/// * `kamino_reserve` - Kamino reserve account
-/// * `kamino_collateral` - Kamino collateral token account
+/// * `recipient_ftoken_account` - Destination for fTokens
+/// * `jupiter_accounts` - Jupiter Lend specific accounts
 /// * `token_program` - SPL Token program
 /// * `amount` - Amount to deposit
-/// * `bump` - PDA bump seed
-/// 
-/// # TODO
-/// Implement actual Kamino CPI call
-/// 
-/// # Kamino Integration
-/// ```
-/// // Production implementation would:
-/// use kamino::cpi::accounts::DepositReserveLiquidity;
-/// use kamino::cpi::deposit_reserve_liquidity;
-/// 
-/// let cpi_accounts = DepositReserveLiquidity {
-///     reserve: kamino_reserve,
-///     reserve_liquidity_supply: vault_buffer,
-///     user_collateral: kamino_collateral,
-///     user_transfer_authority: vault,
-///     ...
-/// };
-/// 
-/// deposit_reserve_liquidity(cpi_ctx, amount)?;
-/// ```
-pub fn deposit_to_kamino_internal<'info>(
+pub fn deposit_to_jupiter_lend_internal<'info>(
     vault: &Account<'info, YieldVault>,
-    vault_buffer: &Account<'info, TokenAccount>,
-    vault_collateral: &Account<'info, TokenAccount>,
-    
-    kamino_program: &AccountInfo<'info>,
-    reserve: &AccountInfo<'info>,
-    lending_market: &AccountInfo<'info>,
-    lending_market_authority: &AccountInfo<'info>,
-    reserve_liquidity_supply: &AccountInfo<'info>,
-    reserve_collateral_mint: &AccountInfo<'info>,
-    
+    from: &Account<'info, TokenAccount>,
+    recipient_ftoken_account: &Account<'info, TokenAccount>,
+    jupiter_accounts: &JupiterLendAccounts<'info>,
     token_program: &Program<'info, Token>,
     amount: u64,
 ) -> Result<()> {
-    require!(amount > 0, ErrorCodes::InvalidAmount);
-    require!(vault_buffer.amount >= amount, ErrorCodes::InsufficientFunds);
-    
     let mint_key = vault.mint;
     let bump = vault.bump;
     let seeds = &[
@@ -176,82 +160,97 @@ pub fn deposit_to_kamino_internal<'info>(
     ];
     let signer_seeds = &[&seeds[..]];
 
-    let cpi_accounts = kamino_lend::cpi::accounts::DepositReserveLiquidity {
-        owner: vault.to_account_info(),
-        reserve: reserve.clone(),
-        lending_market: lending_market.clone(),
-        lending_market_authority: lending_market_authority.clone(),
-        reserve_liquidity_supply: reserve_liquidity_supply.clone(),
-        reserve_collateral_mint: reserve_collateral_mint.clone(),
-        user_source_liquidity: vault_buffer.to_account_info(),
-        user_destination_collateral: vault_collateral.to_account_info(),
-        // token_program: token_program.to_account_info(),
+    // Build deposit instruction data
+    let mut instruction_data = get_deposit_discriminator();
+    instruction_data.extend_from_slice(&amount.to_le_bytes());
+
+    let account_metas = vec![
+        // Signer (vault PDA)
+        AccountMeta::new(vault.key(), true),
+        // Depositor token account (vault buffer)
+        AccountMeta::new(from.key(), false),
+        // Recipient token account (fToken account)
+        AccountMeta::new(recipient_ftoken_account.key(), false),
+        // Mint (underlying token)
+        AccountMeta::new_readonly(jupiter_accounts.mint.key(), false),
+        // Lending admin
+        AccountMeta::new_readonly(jupiter_accounts.lending_admin.key(), false),
+        // Lending
+        AccountMeta::new(jupiter_accounts.lending.key(), false),
+        // fToken mint
+        AccountMeta::new(jupiter_accounts.f_token_mint.key(), false),
+        // Supply token reserves liquidity
+        AccountMeta::new(jupiter_accounts.supply_token_reserves_liquidity.key(), false),
+        // Lending supply position on liquidity
+        AccountMeta::new(jupiter_accounts.lending_supply_position_on_liquidity.key(), false),
+        // Rate model
+        AccountMeta::new_readonly(jupiter_accounts.rate_model.key(), false),
+        // Vault
+        AccountMeta::new(jupiter_accounts.jupiter_vault.key(), false),
+        // Liquidity
+        AccountMeta::new(jupiter_accounts.liquidity.key(), false),
+        // Liquidity program
+        AccountMeta::new(jupiter_accounts.liquidity_program.key(), false),
+        // Rewards rate model
+        AccountMeta::new_readonly(jupiter_accounts.rewards_rate_model.key(), false),
+        // Token program
+        AccountMeta::new_readonly(token_program.key(), false),
+        // Associated token program
+        AccountMeta::new_readonly(jupiter_accounts.associated_token_program.key(), false),
+        // System program
+        AccountMeta::new_readonly(jupiter_accounts.system_program.key(), false),
+    ];
+
+    let instruction = Instruction {
+        program_id: jupiter_accounts.lending_program.key(),
+        accounts: account_metas,
+        data: instruction_data,
     };
 
-    let cpi_ctx = CpiContext::new_with_signer(
-        kamino_program.clone(),
-        cpi_accounts,
-        signer_seeds,
-    );
+    let account_infos = vec![
+        vault.to_account_info(),
+        from.to_account_info(),
+        recipient_ftoken_account.to_account_info(),
+        jupiter_accounts.mint.to_account_info(),
+        jupiter_accounts.lending_admin.to_account_info(),
+        jupiter_accounts.lending.to_account_info(),
+        jupiter_accounts.f_token_mint.to_account_info(),
+        jupiter_accounts.supply_token_reserves_liquidity.to_account_info(),
+        jupiter_accounts.lending_supply_position_on_liquidity.to_account_info(),
+        jupiter_accounts.rate_model.to_account_info(),
+        jupiter_accounts.jupiter_vault.to_account_info(),
+        jupiter_accounts.liquidity.to_account_info(),
+        jupiter_accounts.liquidity_program.to_account_info(),
+        jupiter_accounts.rewards_rate_model.to_account_info(),
+        token_program.to_account_info(),
+        jupiter_accounts.associated_token_program.to_account_info(),
+        jupiter_accounts.system_program.to_account_info(),
+    ];
 
-    kamino_lend::cpi::deposit_reserve_liquidity(cpi_ctx, amount)?;
-    
-    msg!("Deposited {} USDC to Kamino", amount);
+    invoke_signed(&instruction, &account_infos, signer_seeds)
+        .map_err(|_| ErrorCodes::JupiterLendDepositFailed)?;
+
+    msg!("Deposited {} to Jupiter Lend", amount);
     Ok(())
 }
 
-/// Withdraw USDC from Kamino lending protocol
+/// Withdraw USDC from Jupiter Lend protocol
 /// 
 /// # Arguments
 /// * `vault` - The yield vault
-/// * `kamino_reserve` - Kamino reserve account
-/// * `kamino_collateral` - Kamino collateral token account
-/// * `to` - Destination token account (vault buffer)
+/// * `owner_ftoken_account` - Source fToken account (owned by vault)
+/// * `recipient_token_account` - Destination for underlying tokens (vault buffer)
+/// * `jupiter_accounts` - Jupiter Lend specific accounts
 /// * `token_program` - SPL Token program
-/// * `amount` - Amount to withdraw
-/// * `bump` - PDA bump seed
-/// 
-/// # TODO
-/// Implement actual Kamino CPI call
-/// 
-/// # Kamino Integration
-/// ```
-/// // Production implementation would:
-/// use kamino::cpi::accounts::RedeemReserveCollateral;
-/// use kamino::cpi::redeem_reserve_collateral;
-/// 
-/// let cpi_accounts = RedeemReserveCollateral {
-///     reserve: kamino_reserve,
-///     reserve_collateral_mint: kamino_collateral_mint,
-///     user_collateral: kamino_collateral,
-///     user_liquidity: vault_buffer,
-///     user_transfer_authority: vault,
-///     ...
-/// };
-/// 
-/// redeem_reserve_collateral(cpi_ctx, collateral_amount)?;
-/// ```
-pub fn withdraw_from_kamino_internal<'info>(
+/// * `amount` - Amount of underlying assets to withdraw
+pub fn withdraw_from_jupiter_lend_internal<'info>(
     vault: &Account<'info, YieldVault>,
-    vault_buffer: &Account<'info, TokenAccount>,
-    vault_collateral: &Account<'info, TokenAccount>,
-    
-    kamino_program: &AccountInfo<'info>,
-    reserve: &AccountInfo<'info>,
-    lending_market: &AccountInfo<'info>,
-    lending_market_authority: &AccountInfo<'info>,
-    reserve_collateral_mint: &AccountInfo<'info>,
-    reserve_liquidity_supply: &AccountInfo<'info>,
-    
+    owner_ftoken_account: &Account<'info, TokenAccount>,
+    recipient_token_account: &Account<'info, TokenAccount>,
+    jupiter_accounts: &JupiterLendAccounts<'info>,
     token_program: &Program<'info, Token>,
-    collateral_amount: u64, // Amount of kUSDC to redeem
+    amount: u64,
 ) -> Result<()> {
-    require!(collateral_amount > 0, ErrorCodes::InvalidAmount);
-    require!(
-        vault_collateral.amount >= collateral_amount,
-        ErrorCodes::InsufficientCollateral
-    );
-    
     let mint_key = vault.mint;
     let bump = vault.bump;
     let seeds = &[
@@ -261,53 +260,105 @@ pub fn withdraw_from_kamino_internal<'info>(
     ];
     let signer_seeds = &[&seeds[..]];
 
-    let cpi_accounts = kamino_lend::cpi::accounts::RedeemReserveCollateral {
-        owner: vault.to_account_info(),
-        lending_market: lending_market.clone(),
-        lending_market_authority: lending_market_authority.clone(),
-        reserve: reserve.clone(),
-        reserve_collateral_mint: reserve_collateral_mint.clone(),
-        reserve_liquidity_supply: reserve_liquidity_supply.clone(),
-        user_source_collateral: vault_collateral.to_account_info(),
-        user_destination_liquidity: vault_buffer.to_account_info(),
-        // token_program: token_program.to_account_info(),
+    // Build withdraw instruction data
+    let mut instruction_data = get_withdraw_discriminator();
+    instruction_data.extend_from_slice(&amount.to_le_bytes());
+
+    let account_metas = vec![
+        // Signer (vault PDA)
+        AccountMeta::new(vault.key(), true),
+        // Owner token account (fToken account)
+        AccountMeta::new(owner_ftoken_account.key(), false),
+        // Recipient token account (vault buffer)
+        AccountMeta::new(recipient_token_account.key(), false),
+        // Lending admin
+        AccountMeta::new_readonly(jupiter_accounts.lending_admin.key(), false),
+        // Lending
+        AccountMeta::new(jupiter_accounts.lending.key(), false),
+        // Mint (underlying token)
+        AccountMeta::new_readonly(jupiter_accounts.mint.key(), false),
+        // fToken mint
+        AccountMeta::new(jupiter_accounts.f_token_mint.key(), false),
+        // Supply token reserves liquidity
+        AccountMeta::new(jupiter_accounts.supply_token_reserves_liquidity.key(), false),
+        // Lending supply position on liquidity
+        AccountMeta::new(jupiter_accounts.lending_supply_position_on_liquidity.key(), false),
+        // Rate model
+        AccountMeta::new_readonly(jupiter_accounts.rate_model.key(), false),
+        // Vault
+        AccountMeta::new(jupiter_accounts.jupiter_vault.key(), false),
+        // Claim account
+        AccountMeta::new(jupiter_accounts.claim_account.key(), false),
+        // Liquidity
+        AccountMeta::new(jupiter_accounts.liquidity.key(), false),
+        // Liquidity program
+        AccountMeta::new(jupiter_accounts.liquidity_program.key(), false),
+        // Rewards rate model
+        AccountMeta::new_readonly(jupiter_accounts.rewards_rate_model.key(), false),
+        // Token program
+        AccountMeta::new_readonly(token_program.key(), false),
+        // Associated token program
+        AccountMeta::new_readonly(jupiter_accounts.associated_token_program.key(), false),
+        // System program
+        AccountMeta::new_readonly(jupiter_accounts.system_program.key(), false),
+    ];
+
+    let instruction = Instruction {
+        program_id: jupiter_accounts.lending_program.key(),
+        accounts: account_metas,
+        data: instruction_data,
     };
 
-    let cpi_ctx = CpiContext::new_with_signer(
-        kamino_program.clone(),
-        cpi_accounts,
-        signer_seeds,
-    );
+    let account_infos = vec![
+        vault.to_account_info(),
+        owner_ftoken_account.to_account_info(),
+        recipient_token_account.to_account_info(),
+        jupiter_accounts.lending_admin.to_account_info(),
+        jupiter_accounts.lending.to_account_info(),
+        jupiter_accounts.mint.to_account_info(),
+        jupiter_accounts.f_token_mint.to_account_info(),
+        jupiter_accounts.supply_token_reserves_liquidity.to_account_info(),
+        jupiter_accounts.lending_supply_position_on_liquidity.to_account_info(),
+        jupiter_accounts.rate_model.to_account_info(),
+        jupiter_accounts.jupiter_vault.to_account_info(),
+        jupiter_accounts.claim_account.to_account_info(),
+        jupiter_accounts.liquidity.to_account_info(),
+        jupiter_accounts.liquidity_program.to_account_info(),
+        jupiter_accounts.rewards_rate_model.to_account_info(),
+        token_program.to_account_info(),
+        jupiter_accounts.associated_token_program.to_account_info(),
+        jupiter_accounts.system_program.to_account_info(),
+    ];
 
-    kamino_lend::cpi::redeem_reserve_collateral(cpi_ctx, collateral_amount)?;
-    
-    msg!("Redeemed {} kUSDC from Kamino", collateral_amount);
+    invoke_signed(&instruction, &account_infos, signer_seeds)
+        .map_err(|_| ErrorCodes::JupiterLendWithdrawFailed)?;
+
+    msg!("Withdrew {} from Jupiter Lend", amount);
     Ok(())
 }
 
-pub fn calculate_collateral_for_liquidity(
-    liquidity_amount: u64,
-    kamino_reserve: &AccountInfo,
-) -> Result<u64> {
-    let reserve_data = kamino_reserve.try_borrow_data()?;
-    let reserve = Reserve::try_deserialize(&mut &reserve_data[..])?;
+pub struct JupiterLendAccounts<'info> {
+    // Token accounts
+    pub mint: AccountInfo<'info>,
+    pub f_token_mint: AccountInfo<'info>,
     
-    let borrowed_amount = reserve.liquidity.borrowed_amount_wads
-        .try_floor_u64()
-        .ok_or(ErrorCodes::MathOverflow)?;
+    // Protocol accounts
+    pub lending_admin: AccountInfo<'info>,
+    pub lending: AccountInfo<'info>,
     
-    let total_liquidity = reserve.liquidity.available_amount
-        .checked_add(borrowed_amount)
-        .ok_or(ErrorCodes::MathOverflow)?;
+    // Liquidity protocol accounts
+    pub supply_token_reserves_liquidity: AccountInfo<'info>,
+    pub lending_supply_position_on_liquidity: AccountInfo<'info>,
+    pub rate_model: AccountInfo<'info>,
+    pub jupiter_vault: AccountInfo<'info>,
+    pub liquidity: AccountInfo<'info>,
+    pub liquidity_program: AccountInfo<'info>,
     
-    let total_collateral_supply = reserve.collateral.mint_total_supply;
+    pub rewards_rate_model: AccountInfo<'info>,
+    pub claim_account: AccountInfo<'info>,
     
-    // collateral_needed = (liquidity_amount * total_collateral_supply) / total_liquidity
-    let collateral_needed = (liquidity_amount as u128)
-        .checked_mul(total_collateral_supply as u128)
-        .ok_or(ErrorCodes::MathOverflow)?
-        .checked_div(total_liquidity as u128)
-        .ok_or(ErrorCodes::MathOverflow)?;
-    
-    Ok(collateral_needed as u64)
+    // Programs
+    pub lending_program: AccountInfo<'info>,
+    pub associated_token_program: AccountInfo<'info>,
+    pub system_program: AccountInfo<'info>,
 }

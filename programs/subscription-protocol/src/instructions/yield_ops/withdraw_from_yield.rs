@@ -2,7 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
 use crate::{SubscriptionWallet, YieldVault, YieldWithdrawal, ErrorCodes};
 use crate::utils::{
-    calculate_collateral_for_liquidity, calculate_usdc_value_of_shares, get_vault_total_value, withdraw_from_kamino_internal, withdraw_from_vault_internal
+    calculate_usdc_value_of_shares,
+    get_vault_total_value,
+    withdraw_from_vault_internal
 };
 
 #[derive(Accounts)]
@@ -43,23 +45,8 @@ pub struct WithdrawFromYield<'info> {
     )]
     pub vault_buffer: Account<'info, TokenAccount>,
 
-   #[account(
-        mut,
-        constraint = vault_collateral.key() == yield_vault.kamino_collateral @ ErrorCodes::InvalidCollateralAccount
-    )]
-    pub vault_collateral: Account<'info, TokenAccount>,
-
-    pub kamino_reserve: AccountInfo<'info>,
-
-    pub kamino_program: AccountInfo<'info>,
-
-    pub lending_market: AccountInfo<'info>,
-
-    pub lending_market_authority: AccountInfo<'info>,
-
-    pub reserve_liquidity_supply: AccountInfo<'info>,
-
-    pub reserve_collateral_mint: AccountInfo<'info>,
+    /// CHECK: Jupiter Lend lending account
+    pub jupiter_lending: AccountInfo<'info>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -78,51 +65,29 @@ pub fn handler(
         ErrorCodes::InsufficientShares
     );
 
+    // Calculate USDC value
     let usdc_value = calculate_usdc_value_of_shares(
         shares_to_redeem,
         vault.total_shares_issued,
         get_vault_total_value(
-            ctx.accounts.kamino_reserve.clone(),
+            ctx.accounts.jupiter_lending.clone(),
             &vault,
-            &ctx.accounts.vault_buffer,
-            &ctx.accounts.vault_collateral,
+            Some(&ctx.accounts.vault_buffer),
+            None,
         )?,
     )?;
 
-    if ctx.accounts.vault_buffer.amount < usdc_value {
-        let shortfall = usdc_value
-            .checked_sub(ctx.accounts.vault_buffer.amount)
-            .ok_or(ErrorCodes::MathOverflow)?;
-        
-        let collateral_needed = calculate_collateral_for_liquidity(
-            shortfall,
-            &ctx.accounts.kamino_reserve,
-        )?;
-        
-        withdraw_from_kamino_internal(
-            vault,
-            &ctx.accounts.vault_buffer,
-            &ctx.accounts.vault_collateral,
-            &ctx.accounts.kamino_program,
-            &ctx.accounts.kamino_reserve,
-            &ctx.accounts.lending_market,
-            &ctx.accounts.lending_market_authority,
-            &ctx.accounts.reserve_collateral_mint,
-            &ctx.accounts.reserve_liquidity_supply,
-            &ctx.accounts.token_program,
-            collateral_needed,
-        )?;
-    }
-
+    // Withdraw from vault to user's wallet
     withdraw_from_vault_internal(
         vault.to_account_info(),
         &vault,
         &ctx.accounts.vault_buffer,
         &ctx.accounts.wallet_token_account,
         &ctx.accounts.token_program,
-        usdc_value
+        usdc_value,
     )?;
 
+    // Update state
     wallet.yield_shares = wallet.yield_shares
         .checked_sub(shares_to_redeem)
         .ok_or(ErrorCodes::MathOverflow)?;

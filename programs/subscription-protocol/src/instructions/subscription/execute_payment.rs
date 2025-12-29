@@ -80,8 +80,8 @@ pub struct ExecutePaymentFromWallet<'info> {
     #[account(mut)]
     pub vault_buffer: Option<Account<'info, TokenAccount>>,
 
-    /// CHECK: Kamino reserve
-    pub kamino_reserve: Option<AccountInfo<'info>>,
+    /// CHECK: Jupiter Lend lending account
+    pub jupiter_lending: Option<AccountInfo<'info>>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -125,8 +125,10 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
         
         // Calculate shares needed
         let total_vault_value = get_vault_total_value(
-            ctx.accounts.kamino_reserve.clone().unwrap(),
+            ctx.accounts.jupiter_lending.clone().unwrap(),
             &vault,
+            ctx.accounts.vault_buffer.as_ref(),
+            None,
         )?;
         
         let shares_needed = calculate_shares_for_withdrawal(
@@ -147,7 +149,7 @@ pub fn handler(ctx: Context<ExecutePaymentFromWallet>) -> Result<()> {
             ctx.accounts.vault_buffer.as_ref().unwrap(),
             &ctx.accounts.wallet_token_account,
             &ctx.accounts.token_program,
-            shortfall
+            shortfall,
         )?;
 
         // Update share balances

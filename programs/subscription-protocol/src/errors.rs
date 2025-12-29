@@ -44,6 +44,9 @@ pub enum ErrorCodes {
     #[msg("Invalid collateral account")]
     InvalidCollateralAccount,
 
+    #[msg("Invalid Jupiter Lend account")]
+    InvalidJupiterLendAccount,
+
     #[msg("Insufficient wallet balance for subscription")]
     InsufficientWalletBalance,
 
@@ -67,6 +70,10 @@ pub enum ErrorCodes {
 
     #[msg("Invalid treasury account")]
     InvalidTreasuryAccount,
+
+    
+    #[msg("Invalid share amount")]
+    InvalidShareAmount,
 
     #[msg("Session token exceeds maximum length (64 characters)")]
     SessionTokenTooLong,
@@ -92,9 +99,6 @@ pub enum ErrorCodes {
     #[msg("No shares to redeem")]
     NoSharesToRedeem,
 
-    #[msg("Invalid share amount")]
-    InvalidShareAmount,
-
     #[msg("Insufficient shares")]
     InsufficientShares,
 
@@ -103,4 +107,10 @@ pub enum ErrorCodes {
 
     #[msg("Insufficient available balance in wallet")]
     InsufficientAvailableBalance,
+
+    #[msg("Jupiter Lend deposit failed")]
+    JupiterLendDepositFailed,
+    
+    #[msg("Jupiter Lend withdraw failed")]
+    JupiterLendWithdrawFailed,
 }

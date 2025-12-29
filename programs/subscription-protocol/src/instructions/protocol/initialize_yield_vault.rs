@@ -18,14 +18,16 @@ pub struct InitializeYieldVault<'info> {
 
     pub mint: Account<'info, Mint>,
 
-    /// CHECK: Will be initialized separately
+    /// USDC buffer token account (owned by yield_vault PDA)
     pub usdc_buffer: Account<'info, TokenAccount>,
 
-    /// CHECK: Will be initialized separately
-    pub kamino_collateral: Account<'info, TokenAccount>,
+    /// Jupiter Lend fToken account (owned by yield_vault PDA)
+    /// This replaces kamino_collateral
+    pub jupiter_ftoken_account: Account<'info, TokenAccount>,
 
-    /// CHECK: Kamino reserve address
-    pub kamino_reserve: AccountInfo<'info>,
+    /// Jupiter Lend lending account
+    /// CHECK: Jupiter Lend protocol account
+    pub jupiter_lending: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -40,13 +42,13 @@ pub fn handler(
     vault.authority = ctx.accounts.authority.key();
     vault.mint = ctx.accounts.mint.key();
     vault.usdc_buffer = ctx.accounts.usdc_buffer.key();
-    vault.kamino_collateral = ctx.accounts.kamino_collateral.key();
-    vault.kamino_reserve = ctx.accounts.kamino_reserve.key();
+    vault.jupiter_ftoken_account = ctx.accounts.jupiter_ftoken_account.key();
+    vault.jupiter_lending = ctx.accounts.jupiter_lending.key();
     vault.total_shares_issued = 0;
     vault.total_usdc_deposited = 0;
     vault.target_buffer_bps = target_buffer_bps;
     vault.emergency_mode = false;
-    vault.emergency_exchange_rate = 1_000_000; // 1:1 ratio with 6 decimals
+    vault.emergency_exchange_rate = 1_000_000;
     vault.bump = ctx.bumps.yield_vault;
 
     emit!(YieldVaultInitialized {

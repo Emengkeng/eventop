@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Token, TokenAccount};
 use crate::{YieldVault, EmergencyModeChanged, ErrorCodes};
 use crate::utils::{calculate_current_exchange_rate, get_vault_total_value};
 
@@ -14,8 +15,27 @@ pub struct SetEmergencyMode<'info> {
 
     pub authority: Signer<'info>,
 
-    /// CHECK: Kamino reserve
-    pub kamino_reserve: AccountInfo<'info>,
+    #[account(
+        mut,
+        token::mint = yield_vault.mint,
+        constraint = vault_buffer.key() == yield_vault.usdc_buffer
+    )]
+    pub vault_buffer: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        token::mint = f_token_mint.key(),
+        constraint = jupiter_ftoken_account.key() == yield_vault.jupiter_ftoken_account
+    )]
+    pub jupiter_ftoken_account: Account<'info, TokenAccount>,
+
+    /// CHECK: Jupiter Lend fToken mint
+    pub f_token_mint: AccountInfo<'info>,
+
+    /// CHECK: Jupiter Lend lending account
+    pub jupiter_lending: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
 }
 
 pub fn handler(ctx: Context<SetEmergencyMode>, enabled: bool) -> Result<()> {
@@ -27,7 +47,12 @@ pub fn handler(ctx: Context<SetEmergencyMode>, enabled: bool) -> Result<()> {
         // Freeze exchange rate at current value
         vault.emergency_exchange_rate = calculate_current_exchange_rate(
             vault.total_shares_issued,
-            get_vault_total_value(ctx.accounts.kamino_reserve.clone(), &vault)?,
+            get_vault_total_value(
+                ctx.accounts.jupiter_lending.clone(),
+                &vault,
+                Some(&ctx.accounts.vault_buffer),
+                Some(&ctx.accounts.jupiter_ftoken_account),
+            )?,
         )?;
     }
 
