@@ -57,7 +57,7 @@ At scale (thousands to millions of users), per-user Jup positions would be prohi
 │                                                     │
 │  YieldVault PDA                                     │
 │  ├── USDC Buffer Pool (10-15% of all funds)        │
-│  ├── kUSDC Position (85-90% in Jup)             │
+│  ├── fToken Position (85-90% in Jup)             │
 │  ├── Total Shares Issued                           │
 │  └── Emergency Controls                            │
 │                                                     │
@@ -96,7 +96,7 @@ At scale (thousands to millions of users), per-user Jup positions would be prohi
    - Buffer (15%): 150 USDC → stays in wallet
    - Yield (85%): 850 USDC → moves to YieldVault
 4. YieldVault issues 850 shares to user
-5. YieldVault deposits 850 USDC to Jup (receives kUSDC)
+5. YieldVault deposits 850 USDC to Jup (receives f-token)
 ```
 
 **Share Calculation:**
@@ -107,7 +107,7 @@ At scale (thousands to millions of users), per-user Jup positions would be prohi
 ### 2. Yield Accrues Automatically
 
 **No on-chain actions needed:**
-- Jup's kUSDC increases in value over time (exchange rate grows)
+- Jup's USDC increases in value over time (exchange rate grows)
 - User's share count stays constant (850 shares)
 - But each share becomes worth more USDC
 
@@ -171,7 +171,7 @@ User Deposits
               │
               ├─ 10-15% → Vault Buffer (protocol-level)
               │
-              └─ 85-90% → Jup Lend (kUSDC)
+              └─ 85-90% → Jup Lend
                           │
                           └─ Earns yield via lending
 ```
@@ -186,13 +186,14 @@ pub struct YieldVault {
     pub authority: Pubkey,              // Protocol owner
     pub mint: Pubkey,                   // USDC mint
     pub usdc_buffer: Pubkey,            // Vault's buffer token account
-    pub Jup_collateral: Pubkey,      // kUSDC token account
-    pub Jup_reserve: Pubkey,         // Jup reserve address
+    pub jupiter_ftoken_account: Pubkey,
+    pub jupiter_lending: Pubkey,         // Jup reserve address
     pub total_shares_issued: u64,       // Total shares across all users
     pub total_usdc_deposited: u64,      // Tracking (approximate)
     pub target_buffer_bps: u16,         // 1500 = 15%
     pub emergency_mode: bool,           // Kill switch
     pub emergency_exchange_rate: u64,   // Frozen rate if emergency
+   pub bump: u8,
 }
 ```
 
@@ -206,6 +207,7 @@ pub struct SubscriptionWallet {
     pub is_yield_enabled: bool,
     pub total_subscriptions: u32,
     pub total_spent: u64,
+   pub bump: u8,
 }
 ```
 
