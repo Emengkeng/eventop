@@ -35,9 +35,9 @@ This is **not** marketed as passive income. Yield is treated as a **cost reducer
 
 ## Protocol Choice (Initial)
 
-**Kamino Lend – USDC market**
+**Jup Lend – USDC market**
 
-Reason for starting with Kamino:
+Reason for starting with Jup:
 
 * USDC-focused lending
 * Instant / near-instant withdrawals
@@ -75,7 +75,7 @@ Even if users see their **full balance earning**, internally funds are split int
 
 ### 2. Yield Pool (85–90%)
 
-* Supplied to Kamino Lend (USDC)
+* Supplied to Jup Lend (USDC)
 * Earning variable yield
 * Withdrawn from only when necessary
 
@@ -92,7 +92,7 @@ At each billing cycle:
    * If yes → deduct directly from buffer
 2. If buffer < deduction amount
 
-   * Withdraw only the required amount from Kamino
+   * Withdraw only the required amount from Jup
    * Complete the deduction
 3. After deduction
 
@@ -131,7 +131,7 @@ Yield for small balances is treated as **value preservation**, not income.
 
 When a user disables yield:
 
-1. Withdraw full remaining balance from Kamino
+1. Withdraw full remaining balance from Jup
 2. Move funds to liquidity buffer
 3. User balance becomes fully liquid
 
@@ -177,7 +177,7 @@ Example:
 * Yield is optional and conservative
 * USDC-only, no price volatility
 * Payments always come first
-* Kamino Lend is the initial protocol
+* Jup Lend is the initial protocol
 * Designed for predictability, not speculation
 
 This approach aligns with Eventop’s goal of being reliable, transparent, and user-first while still taking advantage of on-chain efficiency.
