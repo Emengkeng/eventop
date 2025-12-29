@@ -25,7 +25,7 @@ Virtual cards for managing recurring payments with optional yield earning on idl
 
 ### Multi-Protocol Yield Integration
 Earn returns through integrated DeFi protocols:
-- Juplend(coming soon)
+- Jup lend
 
 ### Configurable Protocol Fees
 Maximum 1% fee on all transactions with transparent fee structure
@@ -117,7 +117,7 @@ GPVtSfXPiy8y4SkJrMC3VFyKUmGVhMrRbAp2NhiW1Ds2
 **Built With:**
 - Anchor Framework
 - Solana Web3.js
-- Integration with Juplend(cooming soon)
+- Integration with Juplend
 
 ## Security
 
